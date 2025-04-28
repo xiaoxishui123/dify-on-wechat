@@ -1,0 +1,11 @@
+{
+  "jina_reader_base": "https://r.jina.ai",
+  "open_ai_api_base": "https://api.siliconflow.cn/v1",
+  "open_ai_api_key": "sk-whiqhcrowdhgoecvpqegixemvikemtwbmsaykigwvfmkxluw",
+  "open_ai_model": "deepseek-ai/DeepSeek-V3",
+  "model": "DeepSeek-ai",
+  "max_words": 8000,
+  "white_url_list": [],
+  "black_url_list": ["https://support.weixin.qq.com", "https://channels-aladin.wxqcloud.qq.com"],
+  "prompt": "我需要对下面的文本进行总结，总结输出包括以下三个部分：\n📖 一句话总结\n🔑 关键要点,用数字序号列出3-5个文章的核心内容\n🏷 标签: #xx #xx\n。不要使用'**'加粗标题优化输出格式。"
+}
