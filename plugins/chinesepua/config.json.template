@@ -6,5 +6,7 @@
     "claude_base": "",
     "claude_model": "claude-3-5-sonnet-20240620",
     "max_tokens": 2048,
-    "with_text": false
+    "with_text": false,
+    "enable_ai_translation": true,
+    "rounded_corner_radius": 20
 }

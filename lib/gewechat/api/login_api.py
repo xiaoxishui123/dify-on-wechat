@@ -18,7 +18,7 @@ class LoginApi:
             "token": token,
             "callbackUrl": callback_url
         }
-        return post_json(self.base_url, "/tools/setCallback", self.token, param)
+        return post_json(self.base_url, "/login/setCallback", self.token, param)
 
     def get_qr(self, app_id):
         """获取登录二维码"""

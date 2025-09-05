@@ -93,7 +93,14 @@ class ByteDanceCozeBot(Bot):
         channel = context.get("channel")
         is_group = context.get("isgroup", False)
         if is_group:
-            at_prefix = "@" + context["msg"].actual_user_nickname + "\n"
+            # 添加空值检查，防止actual_user_nickname为None时拼接失败
+            actual_user_nickname = getattr(context["msg"], 'actual_user_nickname', None)
+            if actual_user_nickname:
+                at_prefix = "@" + actual_user_nickname + "\n"
+            else:
+                # 如果actual_user_nickname为空，使用actual_user_id作为备选
+                actual_user_id = getattr(context["msg"], 'actual_user_id', '未知用户')
+                at_prefix = "@" + str(actual_user_id) + "\n"
         for item in parsed_content[:-1]:
             reply = None
             if item['type'] == 'text':
@@ -123,7 +130,17 @@ class ByteDanceCozeBot(Bot):
         if final_item['type'] == 'text':
             content = final_item['content']
             if is_group:
-                at_prefix = "@" + context["msg"].actual_user_nickname + "\n"
+                # 添加空值检查，防止actual_user_nickname为None时拼接失败
+                actual_user_nickname = getattr(context["msg"], 'actual_user_nickname', None)
+                if actual_user_nickname:
+                    at_prefix = "@" + actual_user_nickname + "\n"
+                else:
+                    # 如果actual_user_nickname为空，使用actual_user_id作为备选
+                    actual_user_id = getattr(context["msg"], 'actual_user_id', None)
+                    if actual_user_id:
+                        at_prefix = "@" + str(actual_user_id) + "\n"
+                    else:
+                        at_prefix = "@未知用户\n"
                 content = at_prefix + content
             final_reply = Reply(ReplyType.TEXT, final_item['content'])
         elif final_item['type'] == 'image':

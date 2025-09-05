@@ -1,50 +1,61 @@
 # ChinesePUA 插件
 
-ChinesePUA 是一个为 chatgpt-on-wechat 设计的插件,灵感来源于李继刚和云中江树的创意。它能够为中文词语提供幽默而富有创意的新解释,并生成一张方便分享的文字卡片。此外，它还可以生成精美的社交名片。
-
-特别感谢云中江树大神收录 [飞书文档: 玩转"汉语新解"？我用通义AI直出爆款文字卡片](https://langgptai.feishu.cn/wiki/WKaEwX5LMirfJlkenf6cKGDGnJg)
+这是一个基于AI的中文解释和吐槽生成插件，可以对用户提供的关键词进行有趣的解释或吐槽。
 
 ## 功能
 
-- 输入 "吐槽 [词语]" 或者 "pua [词语]" 即可获得该词语的幽默新解释。默认生成云中江树版本的卡片，如果输入中包含 "claude"，则使用Claude模型生成李继刚版本的卡片。
-- 采用李继刚和云中江树两位大神无私分享的prompt [飞书文档: 精美卡片-汉语新解（玩梗高手）](https://tffyvtlai4.feishu.cn/wiki/HvkuwNcKxiqvLKk5o9rcRjfjn1u)
-- 输入 "设计 [个人信息]" 或 "名片 [个人信息]" 生成精美的社交名片 参照云中江树大神的 [飞书文档: 国内 AI 也能直出高颜值名片](https://langgptai.feishu.cn/wiki/WG7OwFMcOi1GQ1kHIsjctEUnnC1)
-- 输入 "解字 [汉字]"、"字典 [汉字]" 或 "字源 [汉字]" 获取汉字的详细解释和字源信息 参照李继刚大神的 [即刻动态: 说文解字0.2](https://m.okjike.com/originalPosts/66e832842cacf9416a2500bf?s=eyJ1IjoiNjRiNWY5YzliOGM3NWExYmI4Nzk4OGQ0In0%3D)
-- 增加了一些Claude模型专用的提示词 参照 [李继刚神级 Claude prompt合集](https://mp.weixin.qq.com/s/U7rl2LGN3MQbnfiMlzlwUg)
+- 解释命令：对中文词语进行有趣且夸张的解释
+- 吐槽命令：以关键词为主题，生成幽默的吐槽内容
+- 圆角图片：自动为生成的图片添加圆角效果，提升视觉效果
 
 ## 使用方法
 
-1. 在聊天中输入 "吐槽 [词语]"，例如 "吐槽 加班"
-2. 插件会返回该词语的幽默新解释和文字卡片
-3. 输入 "设计 [姓名] [职位] [公司] [联系方式]" 或 "名片 [姓名] [职位] [公司] [联系方式]" 生成社交名片
-4. 输入 "解字 [汉字]"，例如 "解字 敏" 获取汉字的详细解释和字源信息
-5. 输入 "翻译 [内容]" 进行翻译
-6. 输入 "论证 [内容]" 或 "分析 [内容]" 进行论证分析，例如 `分析 抖音对年轻人的影响利大于弊，因为它提供了一个创意表达的平台，促进了信息传播`
-7. 输入 "思考 [内容]" 或 "撕考 [内容]" 调用撕考者
-8. 输入 "沉思 [内容]" 或 "琢磨 [内容]" 调用沉思者
-9. 输入 "概念 [内容]" 或 "概念解释 [内容]" 进行概念解释
-10. 输入 "哲学家 [内容]" 或 "哲学 [内容]" 进行哲学思考
-11. 输入 "互联网 [内容]" 或 "web2 [内容]" 调用互联网黑话专家
-12. 输入 "知识 [内容]" 或 "知识卡 [内容]" 生成知识卡片
-13. 输入 "单词 [内容]" 或 "单词卡 [内容]" 生成单词卡片
+1. 解释功能：发送 `解释 [关键词]`，如 `解释 程序员`
+2. 吐槽功能：发送 `吐槽 [关键词]`，如 `吐槽 加班`
 
-## 样例
+## 配置说明
 
-以下是使用本插件生成的文字卡片样例：
+1. 复制 `config.json.template` 为 `config.json`
+2. 编辑 `config.json` 文件，填入必要的配置信息：
 
-![吐槽演员样例](images/example1.jpg)
+```json
+{
+    "enabled": true,
+    "api_key": "YOUR_DIFY_API_KEY_HERE",
+    "api_base_url": "https://api.dify.ai",
+    "template_file": "plugins/chinesepua/templates/prompt_template.txt",
+    "log_level": "INFO"
+}
+```
 
-社交名片样例：
+### 配置项说明
 
-输入 `设计 张三 法外狂徒 法学教授 普及法律知识 头像：https://s1-imfile.feishucdn.com/static-resource/v1/v2_493bb53e-6bb9-4910-a48c-da17a3d49aag~ 个人主页：https://langgptai.feishu.cn/wiki/WG7OwFMcOi1GQ1kHIsjctEUnnC1`
+- `enabled`: 是否启用插件，设置为 `true` 或 `false`
+- `api_key`: Dify API 密钥，必填
+- `api_base_url`: Dify API 基础 URL，默认为 "https://api.dify.ai"
+- `template_file`: 提示词模板文件路径
+- `log_level`: 日志级别，可设置为 "DEBUG", "INFO", "WARNING", "ERROR"
+- `rounded_corner_radius`: 图片圆角半径，默认为 20 像素
 
-![社交名片样例](images/example2.jpg)
+## 关键词要求
 
-说文解字样例:
+- 关键词必须包含中文字符
+- 关键词长度在1-10个字符之间
 
-输入 `解字 敏`
+## 错误排查
 
-![说文解字样例](images/example3.png)
+如果插件无法正常工作，请检查以下几点：
+
+1. 确认 `config.json` 中的 API 密钥已正确设置
+2. 检查日志输出中是否有错误信息
+3. 确认模板文件路径是否正确
+
+## 模板定制
+
+可以通过修改 `templates/prompt_template.txt` 文件来自定义生成内容的风格和特点。模板中可使用以下变量：
+
+- `{{command_type}}`: 命令类型，值为 "explain" 或 "complain"
+- `{{keyword}}`: 用户输入的关键词
 
 ## 安装
 
@@ -67,6 +78,21 @@ ChinesePUA 是一个为 chatgpt-on-wechat 设计的插件,灵感来源于李继�
 - `claude_model`: 使用的Claude模型, 默认 `claude-3-5-sonnet-20240620`
 - `with_text`: 是否在卡片中显示解释文本, 默认 `false`
 - `max_tokens`: 生成的文本最大长度, 如果无法生成图片，可以适当增加这个值，例如4096
+
+## 圆角图片功能
+
+插件会自动为生成的图片添加圆角效果，让图片看起来更加美观和现代化。您可以通过配置文件调整圆角的大小：
+
+```json
+{
+    "rounded_corner_radius": 20
+}
+```
+
+- `rounded_corner_radius`: 圆角半径值（像素），数值越大圆角越明显
+- 默认值为 20 像素
+- 设置为 0 可以禁用圆角效果
+- 推荐范围：10-50 像素
 
 ## 注意事项
 

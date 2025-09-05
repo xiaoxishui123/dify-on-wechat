@@ -343,6 +343,108 @@ deepseek和openai可以共用一套api lib，，默认model是`deepseek-chat`
 }
 ```
 
+## 11. 集成Playwright浏览器自动化工具
+
+本项目已集成Playwright浏览器自动化工具，支持网页自动化操作，包括：
+
+### 功能特性
+- 🖼️ **网页截图**: 自动截取网页全屏或指定区域截图
+- 📝 **内容提取**: 提取网页文本、链接、表格等内容
+- 🎯 **元素操作**: 自动点击按钮、填写表单、滚动页面
+- ⏱️ **智能等待**: 等待页面加载完成或特定元素出现
+- 🔍 **页面监控**: 监控页面变化，定时检查更新
+- 🌐 **多浏览器支持**: 支持 Chromium、Firefox、WebKit
+
+### 快速使用
+
+#### 基础截图功能
+```python
+from playwright_automation import quick_screenshot
+
+# 快速截图
+await quick_screenshot("https://www.example.com", "screenshot.png")
+```
+
+#### 内容提取功能
+```python
+from playwright_automation import quick_content_extract
+
+# 快速提取网页内容
+content = await quick_content_extract("https://www.example.com")
+```
+
+#### 完整自动化操作
+```python
+from playwright_automation import PlaywrightAutomation
+
+async def automation_example():
+    automation = PlaywrightAutomation(headless=True)
+    
+    try:
+        # 启动浏览器
+        await automation.start_browser()
+        
+        # 导航到网页
+        await automation.navigate_to_page("https://www.baidu.com")
+        
+        # 填写搜索框
+        await automation.fill_form_field("#kw", "搜索内容")
+        
+        # 点击搜索按钮
+        await automation.click_element("#su")
+        
+        # 等待结果加载
+        await automation.wait_for_element(".result")
+        
+        # 截图保存
+        await automation.take_screenshot("search_result.png")
+        
+        # 获取页面内容
+        content = await automation.get_page_content()
+        
+    finally:
+        # 关闭浏览器
+        await automation.close_browser()
+```
+
+### 运行示例
+
+```bash
+# 安装Playwright（如果尚未安装）
+pip install playwright
+python -m playwright install
+
+# 运行示例脚本
+python examples/playwright_examples.py
+```
+
+### 使用场景
+
+1. **数据采集**: 自动抓取网站数据和内容
+2. **页面监控**: 定时检查网页变化
+3. **自动测试**: Web应用功能测试
+4. **截图服务**: 批量生成网页截图
+5. **表单自动化**: 自动填写和提交表单
+6. **内容分析**: 提取并分析网页结构和内容
+
+### 配置选项
+
+```python
+# 创建自定义配置的自动化实例
+automation = PlaywrightAutomation(
+    headless=True,        # 无头模式运行
+    browser_type="chromium"  # 浏览器类型: chromium/firefox/webkit
+)
+```
+
+### 注意事项
+
+- 使用时请遵守目标网站的robots.txt和使用条款
+- 建议在自动化操作中添加适当的延时，避免对服务器造成压力
+- 截图和临时文件会保存在 `tmp/` 目录中
+- 支持异步操作，性能更优
+- 内置错误处理和重试机制
+
 # 更新日志
 - 2025/01/06 修复在微信群中微信账号无法识别命令的bug，感谢[**sofs2005**](https://github.com/sofs2005)贡献的代码
 - 2025/01/04 修复gewechat自动回复公众号等官方账号消息的bug，感谢[**benxiaohai86**](https://github.com/benxiaohai86)提供的过滤思路

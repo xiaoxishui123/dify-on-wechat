@@ -71,25 +71,28 @@ class Hello(Plugin):
             
             # 获取被邀请用户的昵称
             nickname = None
-            if hasattr(msg, 'invite_nickname'):
-                nickname = msg.invite_nickname
-                logger.debug("[Hello] Got nickname from invite_nickname: %s", nickname)
-            if not nickname:
+            if hasattr(msg, 'actual_user_nickname'):
                 nickname = msg.actual_user_nickname
-                logger.debug("[Hello] Using actual_user_nickname as fallback: %s", nickname)
+                logger.debug("[Hello] Got nickname from actual_user_nickname: %s", nickname)
+            if not nickname and hasattr(msg, 'invite_nickname'):
+                nickname = msg.invite_nickname
+                logger.debug("[Hello] Using invite_nickname as fallback: %s", nickname)
             
             logger.info("[Hello] Final nickname: %s", nickname)
             
             # 检查是否有固定欢迎语
-            if "group_welcome_msg" in conf() or group_name in self.group_welc_fixed_msg:
+            global_welcome_msg = conf().get("group_welcome_msg", "")
+            group_fixed_msg = self.group_welc_fixed_msg.get(group_name, "")
+            
+            if global_welcome_msg or group_fixed_msg:
                 logger.info("[Hello] Using fixed welcome message")
                 reply = Reply()
                 reply.type = ReplyType.TEXT
-                if group_name in self.group_welc_fixed_msg:
-                    reply.content = self.group_welc_fixed_msg.get(group_name, "")
+                if group_fixed_msg:
+                    reply.content = group_fixed_msg
                     logger.info("[Hello] Using group-specific welcome message: %s", reply.content)
                 else:
-                    reply.content = conf().get("group_welcome_msg", "")
+                    reply.content = global_welcome_msg
                     logger.info("[Hello] Using global welcome message: %s", reply.content)
                 e_context["reply"] = reply
                 e_context.action = EventAction.BREAK_PASS

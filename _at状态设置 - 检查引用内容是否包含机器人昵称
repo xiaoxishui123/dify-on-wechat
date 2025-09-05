@@ -1,0 +1,583 @@
+[1mdiff --git a/bot/dify/dify_bot.py b/bot/dify/dify_bot.py[m
+[1mindex 62e7392..1ab740a 100755[m
+[1m--- a/bot/dify/dify_bot.py[m
+[1m+++ b/bot/dify/dify_bot.py[m
+[36m@@ -33,7 +33,10 @@[m [mclass DifyBot(Bot):[m
+         :param query: 消息内容[m
+         :return: 是否跳过[m
+         """[m
+[32m+[m[32m        logger.debug(f"[dify] _should_skip_message checking: '{query[:100]}...'")[m
+[32m+[m[41m        [m
+         if not query:[m
+[32m+[m[32m            logger.debug("[dify] Skip message: empty query")[m
+             return True[m
+             [m
+         # 检查是否包含 @所有人 或 @all[m
+[36m@@ -46,6 +49,12 @@[m [mclass DifyBot(Bot):[m
+             logger.info("[dify] Not skipping invite message")[m
+             return False[m
+             [m
+[32m+[m[32m        # 如果是来自插件的消息，不跳过处理[m
+[32m+[m[32m        if query and ('欢迎' in query or 'Welcome' in query):[m
+[32m+[m[32m            logger.info("[dify] Not skipping welcome message from plugin")[m
+[32m+[m[32m            return False[m
+[32m+[m[41m            [m
+[32m+[m[32m        logger.debug("[dify] Not skipping message")[m
+         return False[m
+ [m
+     def _clean_query(self, query: str, context: dict) -> str:[m
+[36m@@ -112,7 +121,7 @@[m [mclass DifyBot(Bot):[m
+             logger.info("- actual_user_nickname: %s", getattr(msg, 'actual_user_nickname', ''))[m
+ [m
+             # 检查是否需要跳过处理[m
+[31m-            if self._should_skip_message(raw_content):[m
+[32m+[m[32m            if not context.get("from_plugin") and self._should_skip_message(raw_content):[m
+                 logger.info("[dify] Skipping message due to special commands")[m
+                 return Reply(ReplyType.TEXT, "")[m
+ [m
+[36m@@ -141,7 +150,7 @@[m [mclass DifyBot(Bot):[m
+                     has_prefix = True[m
+                 [m
+                 # 如果配置了前缀，则只响应包含配置前缀的消息[m
+[31m-                if group_chat_prefix and not has_prefix:[m
+[32m+[m[32m                if group_chat_prefix and not has_prefix and not context.get("is_plugin_welcome"):[m
+                     logger.info("[dify] Group chat requires configured prefix but message doesn't have it, skip")[m
+                     return Reply(ReplyType.TEXT, "")[m
+ [m
+[36m@@ -318,7 +327,17 @@[m [mclass DifyBot(Bot):[m
+         channel = context.get("channel")[m
+         is_group = context.get("isgroup", False)[m
+         if is_group:[m
+[31m-            at_prefix = "@" + context["msg"].actual_user_nickname + "\n"[m
+[32m+[m[32m            # 添加空值检查，防止actual_user_nickname为None时拼接失败[m
+[32m+[m[32m            actual_user_nickname = getattr(context["msg"], 'actual_user_nickname', None)[m
+[32m+[m[32m            if actual_user_nickname:[m
+[32m+[m[32m                at_prefix = "@" + actual_user_nickname + "\n"[m
+[32m+[m[32m            else:[m
+[32m+[m[32m                # 如果actual_user_nickname为空，使用actual_user_id作为备选[m
+[32m+[m[32m                actual_user_id = getattr(context["msg"], 'actual_user_id', None)[m
+[32m+[m[32m                if actual_user_id:[m
+[32m+[m[32m                    at_prefix = "@" + str(actual_user_id) + "\n"[m
+[32m+[m[32m                else:[m
+[32m+[m[32m                    at_prefix = "@未知用户\n"[m
+         for item in parsed_content[:-1]:[m
+             reply = None[m
+             if item['type'] == 'text':[m
+[36m@@ -349,7 +368,17 @@[m [mclass DifyBot(Bot):[m
+         if final_item['type'] == 'text':[m
+             content = final_item['content'][m
+             if is_group:[m
+[31m-                at_prefix = "@" + context["msg"].actual_user_nickname + "\n"[m
+[32m+[m[32m                # 添加空值检查，防止actual_user_nickname为None时拼接失败[m
+[32m+[m[32m                actual_user_nickname = getattr(context["msg"], 'actual_user_nickname', None)[m
+[32m+[m[32m                if actual_user_nickname:[m
+[32m+[m[32m                    at_prefix = "@" + actual_user_nickname + "\n"[m
+[32m+[m[32m                else:[m
+[32m+[m[32m                    # 如果actual_user_nickname为空，使用actual_user_id作为备选[m
+[32m+[m[32m                    actual_user_id = getattr(context["msg"], 'actual_user_id', None)[m
+[32m+[m[32m                    if actual_user_id:[m
+[32m+[m[32m                        at_prefix = "@" + str(actual_user_id) + "\n"[m
+[32m+[m[32m                    else:[m
+[32m+[m[32m                        at_prefix = "@未知用户\n"[m
+                 content = at_prefix + content[m
+             final_reply = Reply(ReplyType.TEXT, final_item['content'])[m
+         elif final_item['type'] == 'image':[m
+[36m@@ -440,7 +469,17 @@[m [mclass DifyBot(Bot):[m
+         for msg in msgs[:-1]:[m
+             if msg['type'] == 'agent_message':[m
+                 if is_group:[m
+[31m-                    at_prefix = "@" + context["msg"].actual_user_nickname + "\n"[m
+[32m+[m[32m                    # 添加空值检查，防止actual_user_nickname为None时拼接失败[m
+[32m+[m[32m                    actual_user_nickname = getattr(context["msg"], 'actual_user_nickname', None)[m
+[32m+[m[32m                    if actual_user_nickname:[m
+[32m+[m[32m                        at_prefix = "@" + actual_user_nickname + "\n"[m
+[32m+[m[32m                    else:[m
+[32m+[m[32m                        # 如果actual_user_nickname为空，使用actual_user_id作为备选[m
+[32m+[m[32m                        actual_user_id = getattr(context["msg"], 'actual_user_id', None)[m
+[32m+[m[32m                        if actual_user_id:[m
+[32m+[m[32m                            at_prefix = "@" + str(actual_user_id) + "\n"[m
+[32m+[m[32m                        else:[m
+[32m+[m[32m                            at_prefix = "@未知用户\n"[m
+                     msg['content'] = at_prefix + msg['content'][m
+                 reply = Reply(ReplyType.TEXT, msg['content'])[m
+                 channel.send(reply, context)[m
+[1mdiff --git a/channel/chat_channel.py b/channel/chat_channel.py[m
+[1mindex 1685e8b..cab1fda 100755[m
+[1m--- a/channel/chat_channel.py[m
+[1m+++ b/channel/chat_channel.py[m
+[36m@@ -57,16 +57,20 @@[m [mclass ChatChannel(Channel):[m
+                 group_name = cmsg.other_user_nickname[m
+                 group_id = cmsg.other_user_id[m
+                 context["group_name"] = group_name[m
+[32m+[m[32m                logger.info(f"[chat_channel] Group message: group_name='{group_name}', group_id='{group_id}'")[m
+ [m
+                 group_name_white_list = config.get("group_name_white_list", [])[m
+                 group_name_keyword_white_list = config.get("group_name_keyword_white_list", [])[m
+[31m-                if any([m
+[32m+[m[32m                logger.info(f"[chat_channel] Whitelist check: group_name_white_list={group_name_white_list}, group_name_keyword_white_list={group_name_keyword_white_list}")[m
+[32m+[m[32m                whitelist_match = any([m
+                         [[m
+                             group_name in group_name_white_list,[m
+                             "ALL_GROUP" in group_name_white_list,[m
+                             check_contain(group_name, group_name_keyword_white_list),[m
+                         ][m
+[31m-                ):[m
+[32m+[m[32m                )[m
+[32m+[m[32m                logger.info(f"[chat_channel] Whitelist match result: {whitelist_match}")[m
+[32m+[m[32m                if whitelist_match:[m
+                     group_chat_in_one_session = conf().get("group_chat_in_one_session", [])[m
+                     session_id = f"{cmsg.actual_user_id}@@{group_id}" # 当群聊未共享session时，session_id为user_id与group_id的组合，用于区分不同群聊以及单聊[m
+                     context["is_shared_session_group"] = False  # 默认为非共享会话群[m
+[36m@@ -86,8 +90,10 @@[m [mclass ChatChannel(Channel):[m
+             else:[m
+                 context["session_id"] = cmsg.other_user_id[m
+                 context["receiver"] = cmsg.other_user_id[m
+[32m+[m[32m            logger.info(f"[chat_channel] Before plugin event: context is not None: {context is not None}")[m
+             e_context = PluginManager().emit_event(EventContext(Event.ON_RECEIVE_MESSAGE, {"channel": self, "context": context}))[m
+             context = e_context["context"][m
+[32m+[m[32m            logger.info(f"[chat_channel] After plugin event: context is not None: {context is not None}, is_pass: {e_context.is_pass()}")[m
+             if e_context.is_pass() or context is None:[m
+                 return context[m
+             if cmsg.from_user_id == self.user_id and not config.get("trigger_by_self", True):[m
+[36m@@ -165,6 +171,40 @@[m [mclass ChatChannel(Channel):[m
+             if "desire_rtype" not in context and conf().get([m
+                     "voice_reply_voice") and ReplyType.VOICE not in self.NOT_SUPPORT_REPLYTYPE:[m
+                 context["desire_rtype"] = ReplyType.VOICE[m
+[32m+[m[32m        elif context.type == ContextType.JOIN_GROUP:[m
+[32m+[m[32m            # 处理加入群聊消息，确保能够触发Hello插件的欢迎功能[m
+[32m+[m[32m            logger.debug(f"[chat_channel] Processing JOIN_GROUP message: {content}")[m
+[32m+[m[32m            # 设置必要的上下文信息[m
+[32m+[m[32m            if context.get("isgroup", False):[m
+[32m+[m[32m                cmsg = context["msg"][m
+[32m+[m[32m                group_name = cmsg.other_user_nickname[m
+[32m+[m[32m                group_id = cmsg.other_user_id[m
+[32m+[m[32m                context["group_name"] = group_name[m
+[32m+[m[32m                context["session_id"] = group_id[m
+[32m+[m[32m                context["receiver"] = group_id[m
+[32m+[m[32m                logger.debug(f"[chat_channel] JOIN_GROUP context prepared: group_name={group_name}, group_id={group_id}")[m
+[32m+[m[32m        elif context.type == ContextType.EXIT_GROUP:[m
+[32m+[m[32m            # 处理退出群聊消息[m
+[32m+[m[32m            logger.debug(f"[chat_channel] Processing EXIT_GROUP message: {content}")[m
+[32m+[m[32m            if context.get("isgroup", False):[m
+[32m+[m[32m                cmsg = context["msg"][m
+[32m+[m[32m                group_name = cmsg.other_user_nickname[m
+[32m+[m[32m                group_id = cmsg.other_user_id[m
+[32m+[m[32m                context["group_name"] = group_name[m
+[32m+[m[32m                context["session_id"] = group_id[m
+[32m+[m[32m                context["receiver"] = group_id[m
+[32m+[m[32m                logger.debug(f"[chat_channel] EXIT_GROUP context prepared: group_name={group_name}, group_id={group_id}")[m
+[32m+[m[32m        elif context.type == ContextType.PATPAT:[m
+[32m+[m[32m            # 处理拍一拍消息[m
+[32m+[m[32m            logger.debug(f"[chat_channel] Processing PATPAT message: {content}")[m
+[32m+[m[32m            if context.get("isgroup", False):[m
+[32m+[m[32m                cmsg = context["msg"][m
+[32m+[m[32m                group_name = cmsg.other_user_nickname[m
+[32m+[m[32m                group_id = cmsg.other_user_id[m
+[32m+[m[32m                context["group_name"] = group_name[m
+[32m+[m[32m                context["session_id"] = group_id[m
+[32m+[m[32m                context["receiver"] = group_id[m
+[32m+[m[32m                logger.debug(f"[chat_channel] PATPAT context prepared: group_name={group_name}, group_id={group_id}")[m
+         return context[m
+ [m
+     def _handle(self, context: Context):[m
+[36m@@ -262,7 +302,17 @@[m [mclass ChatChannel(Channel):[m
+                         return self._decorate_reply(context, reply)[m
+                     if context.get("isgroup", False):[m
+                         if not conf().get("no_need_at", False):[m
+[31m-                            reply_text = "@" + context["msg"].actual_user_nickname + "\n" + reply_text.strip()[m
+[32m+[m[32m                            # 添加空值检查，防止actual_user_nickname为None时拼接失败[m
+[32m+[m[32m                            actual_user_nickname = getattr(context["msg"], 'actual_user_nickname', None)[m
+[32m+[m[32m                            if actual_user_nickname:[m
+[32m+[m[32m                                reply_text = "@" + actual_user_nickname + "\n" + reply_text.strip()[m
+[32m+[m[32m                            else:[m
+[32m+[m[32m                                # 如果actual_user_nickname为空，使用actual_user_id作为备选[m
+[32m+[m[32m                                actual_user_id = getattr(context["msg"], 'actual_user_id', None)[m
+[32m+[m[32m                                if actual_user_id:[m
+[32m+[m[32m                                    reply_text = "@" + str(actual_user_id) + "\n" + reply_text.strip()[m
+[32m+[m[32m                                else:[m
+[32m+[m[32m                                    reply_text = "@未知用户\n" + reply_text.strip()[m
+                         reply_text = conf().get("group_chat_reply_prefix", "") + reply_text + conf().get([m
+                             "group_chat_reply_suffix", "")[m
+                     else:[m
+[1mdiff --git a/channel/gewechat/gewechat_channel.py b/channel/gewechat/gewechat_channel.py[m
+[1mindex 83fc538..7262aaa 100755[m
+[1m--- a/channel/gewechat/gewechat_channel.py[m
+[1m+++ b/channel/gewechat/gewechat_channel.py[m
+[36m@@ -152,6 +152,25 @@[m [mclass GeWeChatChannel(ChatChannel):[m
+                     except Exception as e:[m
+                         logger.error(f"[gewechat]sendImage, failed to convert image: {e}")[m
+                         return[m
+[32m+[m[32m            elif reply.type == ReplyType.IMAGE:[m
+[32m+[m[32m                # 如果是本地图片文件路径，需要转换为 BytesIO 对象[m
+[32m+[m[32m                if isinstance(reply.content, str):[m
+[32m+[m[32m                    import io[m
+[32m+[m[32m                    try:[m
+[32m+[m[32m                        with open(reply.content, "rb") as f:[m
+[32m+[m[32m                            image_storage = io.BytesIO(f.read())[m
+[32m+[m[32m                    except Exception as e:[m
+[32m+[m[32m                        logger.error(f"[gewechat]sendImage, failed to read local image file: {e}")[m
+[32m+[m[32m                        return[m
+[32m+[m[32m                else:[m
+[32m+[m[32m                    image_storage = reply.content[m
+[32m+[m[41m            [m
+[32m+[m[32m            # 确保 image_storage 是 BytesIO 对象后再进行后续操作[m
+[32m+[m[32m            if not hasattr(image_storage, 'seek'):[m
+[32m+[m[32m                logger.error(f"[gewechat]sendImage, image_storage is not a seekable object: {type(image_storage)}")[m
+[32m+[m[32m                return[m
+[32m+[m[41m                [m
+[32m+[m[32m            # Save image to tmp directory[m[41m [m
+             # Save image to tmp directory[m
+             image_storage.seek(0)[m
+             header = image_storage.read(6)[m
+[36m@@ -179,6 +198,25 @@[m [mclass GeWeChatChannel(ChatChannel):[m
+                 os.rename(img_file_path, new_img_file_path)[m
+                 logger.info("[gewechat] sendImage rename to {}".format(new_img_file_path))[m
+ [m
+[32m+[m[32m    def _gen_join_group_context(self, msg: GeWeChatMessage) -> Context:[m
+[32m+[m[32m        logger.debug(f"[gewechat] handle join group message: {msg.content}")[m
+[32m+[m[32m        # 成员入群的原始数据格式[m
+[32m+[m[32m        # 'content': '"xxx"邀请"yyy"加入了群聊',[m
+[32m+[m[32m        # 'msg_type': 10000,[m
+[32m+[m[32m        context = self._compose_context([m
+[32m+[m[32m            ContextType.JOIN_GROUP,[m[41m [m
+[32m+[m[32m            msg.content,[m[41m [m
+[32m+[m[32m            isgroup=True,[m[41m [m
+[32m+[m[32m            msg=msg,[m
+[32m+[m[32m            # 群名[m
+[32m+[m[32m            group_name=msg.group_name,[m
+[32m+[m[32m            # 邀请人昵称[m
+[32m+[m[32m            invite_nickname=msg.invite_nickname,[m[41m [m
+[32m+[m[32m            # 被邀请人昵称[m
+[32m+[m[32m            actual_user_nickname=msg.actual_user_nickname[m
+[32m+[m[32m        )[m
+[32m+[m[32m        return context[m
+[32m+[m
+ class Query:[m
+     def GET(self):[m
+         # 搭建简单的文件服务器，用于向gewechat服务传输语音等文件，但只允许访问tmp目录下的文件[m
+[36m@@ -220,6 +258,15 @@[m [mclass Query:[m
+             logger.debug(f"[gewechat] ignore status sync message: {gewechat_msg.content}")[m
+             return "success"[m
+ [m
+[32m+[m[32m        # 成员入群事件[m
+[32m+[m[32m        if gewechat_msg.ctype == ContextType.JOIN_GROUP:[m
+[32m+[m[32m            # 成员入群，构造context[m
+[32m+[m[32m            context = channel._gen_join_group_context(gewechat_msg)[m
+[32m+[m[32m            if context:[m
+[32m+[m[32m                channel.produce(context)[m
+[32m+[m[32m            return "success"[m
+[32m+[m
+[32m+[m
+         # 忽略非用户消息（如公众号、系统通知等）[m
+         if gewechat_msg.ctype == ContextType.NON_USER_MSG:[m
+             logger.debug(f"[gewechat] ignore non-user message from {gewechat_msg.from_user_id}: {gewechat_msg.content}")[m
+[36m@@ -231,21 +278,29 @@[m [mclass Query:[m
+                 return "success"[m
+ [m
+         # 忽略来自自己的消息[m
+[32m+[m[32m        logger.info(f"[gewechat] my_msg check: my_msg={gewechat_msg.my_msg}, actual_user_id={gewechat_msg.actual_user_id}, is_group={gewechat_msg.is_group}")[m
+         if gewechat_msg.my_msg:[m
+[31m-            logger.debug(f"[gewechat] ignore message from myself: {gewechat_msg.actual_user_id}: {gewechat_msg.content}")[m
+[32m+[m[32m            logger.info(f"[gewechat] ignore message from myself: actual_user_id={gewechat_msg.actual_user_id}, content={gewechat_msg.content}")[m
+             return "success"[m
+ [m
+         # 忽略过期的消息[m
+[31m-        if int(gewechat_msg.create_time) < int(time.time()) - 60 * 5: # 跳过5分钟前的历史消息[m
+[32m+[m[32m        if gewechat_msg.create_time and int(gewechat_msg.create_time) < int(time.time()) - 60 * 5: # 跳过5分钟前的历史消息[m
+             logger.debug(f"[gewechat] ignore expired message from {gewechat_msg.actual_user_id}: {gewechat_msg.content}")[m
+             return "success"[m
+ [m
+[32m+[m[32m        logger.info(f"[gewechat] Creating context: ctype={gewechat_msg.ctype}, content={gewechat_msg.content[:50]}..., isgroup={gewechat_msg.is_group}")[m
+         context = channel._compose_context([m
+             gewechat_msg.ctype,[m
+             gewechat_msg.content,[m
+             isgroup=gewechat_msg.is_group,[m
+             msg=gewechat_msg,[m
+         )[m
+[32m+[m[32m        logger.info(f"[gewechat] Context created: {context is not None}")[m
+         if context:[m
+[32m+[m[32m            logger.info(f"[gewechat] Producing context to channel")[m
+             channel.produce(context)[m
+[32m+[m[32m        else:[m
+[32m+[m[32m            logger.warning(f"[gewechat] Context is None, message will not be processed")[m
+         return "success"[m
+[41m+[m
+[41m+[m
+[1mdiff --git a/channel/gewechat/gewechat_message.py b/channel/gewechat/gewechat_message.py[m
+[1mindex 7cac506..6193938 100755[m
+[1m--- a/channel/gewechat/gewechat_message.py[m
+[1m+++ b/channel/gewechat/gewechat_message.py[m
+[36m@@ -338,6 +338,7 @@[m [mclass GeWeChatMessage(ChatMessage):[m
+             return[m
+         self.msg_id = self.msg_data['NewMsgId'][m
+         self.is_group = True if "@chatroom" in self.msg_data['FromUserName']['string'] else False[m
+[32m+[m[32m        logger.info(f"[gewechat] is_group determination: FromUserName={self.msg_data['FromUserName']['string']}, is_group={self.is_group}")[m
+ [m
+         notes_join_group = ["加入群聊", "加入了群聊", "invited", "joined", "移出了群聊"][m
+         notes_bot_join_group = ["邀请你", "invited you", "You've joined", "你通过扫描"][m
+[36m@@ -353,6 +354,8 @@[m [mclass GeWeChatMessage(ChatMessage):[m
+             logger.debug(f"[gewechat] detected non-user message from {self.from_user_id}: {self.content}")[m
+             return[m
+ [m
+[32m+[m[32m        logger.info(f"[gewechat] Processing message with MsgType: {self.msg_data['MsgType']}, msg_id: {self.msg_id}")[m
+[32m+[m[41m        [m
+         if self.msg_data['MsgType'] == 1:  # Text message[m
+             self.ctype = ContextType.TEXT[m
+             # 保存原始消息内容[m
+[36m@@ -407,27 +410,62 @@[m [mclass GeWeChatMessage(ChatMessage):[m
+             self.content = TmpDir().path() + str(self.msg_id) + ".png"[m
+             self._prepare_fn = self.download_image[m
+         elif self.msg_data['MsgType'] == 49:  # 引用消息，小程序，公众号等[m
+[32m+[m[32m            logger.info(f"[gewechat] Processing MsgType 49 message, msg_id: {self.msg_id}")[m
+[32m+[m[32m            # 保存原始消息内容[m
+[32m+[m[32m            self.raw_content = self.msg_data.get('Content', {}).get('string', '')[m
+             # After getting content_xml[m
+             content_xml = self.msg_data['Content']['string'][m
+[32m+[m[32m            logger.debug(f"[gewechat] Raw content_xml: {content_xml[:500]}...")  # 只显示前500字符避免日志过长[m
+[32m+[m[41m            [m
+             # Find the position of '<?xml' declaration and remove any prefix[m
+             xml_start = content_xml.find('<?xml version=')[m
+             if xml_start != -1:[m
+                 content_xml = content_xml[xml_start:][m
+[32m+[m[32m                logger.debug(f"[gewechat] Cleaned content_xml: {content_xml[:500]}...")[m
+[32m+[m[41m            [m
+             try:[m
+                 root = ET.fromstring(content_xml)[m
+                 appmsg = root.find('appmsg')[m
+                 if appmsg is not None:[m
+                     msg_type_node = appmsg.find('type')[m
+[32m+[m[32m                    msg_type_value = msg_type_node.text if msg_type_node is not None else 'None'[m
+[32m+[m[32m                    logger.info(f"[gewechat] Found appmsg with type: {msg_type_value}")[m
+[32m+[m[41m                    [m
+                     if msg_type_node is not None and msg_type_node.text == '57':[m
+[32m+[m[32m                        logger.info(f"[gewechat] Detected quote message (type=57)")[m
+                         self.ctype = ContextType.TEXT[m
+                         refermsg = appmsg.find('refermsg')[m
+                         if refermsg is not None:[m
+                             displayname = refermsg.find('displayname').text if refermsg.find('displayname') is not None else ''[m
+                             quoted_content = refermsg.find('content').text if refermsg.find('content') is not None else ''[m
+                             title = appmsg.find('title').text if appmsg.find('title') is not None else ''[m
+[31m-                            self.content = f"「{displayname}: {quoted_content}」----------\n{title}"[m
+[32m+[m[32m                            # 优化引用消息格式：先显示用户的新消息，再显示引用内容[m
+[32m+[m[32m                            self.content = f"{title}\n\n[引用了 {displayname}: {quoted_content}]"[m
+[32m+[m[32m                            logger.info(f"[gewechat] Quote message parsed - displayname: {displayname}, quoted: {quoted_content}, title: {title}")[m
+[32m+[m[41m                            [m
+[32m+[m[32m                            # 为引用消息设置发送者信息和@状态[m
+[32m+[m[32m                            if self.is_group:[m
+[32m+[m[32m                                # 从消息内容中提取发送者ID[m
+[32m+[m[32m                                content_string = self.msg_data.get('Content', {}).get('string', '')[m
+[32m+[m[32m                                logger.info(f"[gewechat] Group quote message - content_string: {content_string[:100]}")[m
+[32m+[m[32m                                if ':' in content_string:[m
+[32m+[m[32m                                    self.actual_user_id = content_string.split(':', 1)[0][m
+[32m+[m[32m                                    logger.info(f"[gewechat] Set actual_user_id for group quote message: {self.actual_user_id}")[m
+[32m+[m[32m                                else:[m
+[32m+[m[32m                                    logger.warning(f"[gewechat] No ':' found in group quote message content")[m
+[32m+[m[41m                                [m
+[32m+[m[32m                                # 检查引用消息是否@机器人 - 检查title和quoted内容[m
+[32m+[m[32m                                if self.to_user_nickname and (self.to_user_nickname in title or self.to_user_nickname in quoted_content):[m
+[32m+[m[32m                                    self.is_at = True[m
+[32m+[m[32m                                    logger.info(f"[gewechat] Quote message contains bot nickname '{self.to_user_nickname}', set is_at=True")[m
+[32m+[m[32m                                else:[m
+[32m+[m[32m                                    logger.info(f"[gewechat] Quote message does not contain bot nickname '{self.to_user_nickname}', is_at=False")[m
+[32m+[m[32m                            else:[m
+[32m+[m[32m                                logger.info(f"[gewechat] Private quote message - using from_user_id: {self.from_user_id}")[m
+[32m+[m[32m                                self.actual_user_id = self.from_user_id[m
+                         else:[m
+                             self.content = content_xml[m
+[32m+[m[32m                            logger.warning(f"[gewechat] Quote message has no refermsg element")[m
+                     elif msg_type_node is not None and msg_type_node.text == '5':[m
+                         title = appmsg.find('title').text if appmsg.find('title') is not None else "无标题"[m
+                         if "加入群聊" in title:[m
+[36m@@ -438,14 +476,36 @@[m [mclass GeWeChatMessage(ChatMessage):[m
+                             self.ctype = ContextType.SHARING[m
+                             self.content = url[m
+                     else:[m
+[32m+[m[32m                        logger.info(f"[gewechat] MsgType 49 with unsupported app type: {msg_type_value}")[m
+                         self.ctype = ContextType.TEXT[m
+                         self.content = content_xml[m
+                 else:[m
+[32m+[m[32m                    logger.warning(f"[gewechat] MsgType 49 has no appmsg element")[m
+                     self.ctype = ContextType.TEXT[m
+                     self.content = content_xml[m
+[31m-            except ET.ParseError:[m
+[32m+[m[32m            except ET.ParseError as e:[m
+[32m+[m[32m                logger.error(f"[gewechat] Failed to parse XML for MsgType 49: {e}")[m
+[32m+[m[32m                logger.debug(f"[gewechat] Problematic XML: {content_xml}")[m
+                 self.ctype = ContextType.TEXT[m
+                 self.content = content_xml[m
+[32m+[m[41m            [m
+[32m+[m[32m            # 为分享消息设置发送者信息[m
+[32m+[m[32m            if self.is_group:[m
+[32m+[m[32m                # 从消息内容中提取发送者ID[m
+[32m+[m[32m                content_string = self.msg_data.get('Content', {}).get('string', '')[m
+[32m+[m[32m                if ':' in content_string:[m
+[32m+[m[32m                    self.actual_user_id = content_string.split(':', 1)[0][m
+[32m+[m[32m                    # 从群成员列表中获取实际发送者信息[m
+[32m+[m[32m                    chatroom_member_list_response = self.client.get_brief_info(self.app_id, [self.actual_user_id])[m
+[32m+[m[32m                    if chatroom_member_list_response.get('ret') == 200 and chatroom_member_list_response.get('data'):[m
+[32m+[m[32m                        brief_info = chatroom_member_list_response['data'][0][m
+[32m+[m[32m                        self.actual_user_nickname = brief_info.get('nickName', self.actual_user_id)[m
+[32m+[m[32m                    else:[m
+[32m+[m[32m                        self.actual_user_nickname = self.actual_user_id[m
+[32m+[m[32m                else:[m
+[32m+[m[32m                    # 如果无法提取发送者ID，使用from_user_id[m
+[32m+[m[32m                    self.actual_user_id = self.from_user_id[m
+[32m+[m[32m                    self.actual_user_nickname = self.other_user_nickname[m
+         elif self.msg_data['MsgType'] == 51:[m
+             self.ctype = ContextType.STATUS_SYNC[m
+             self.content = self.msg_data.get('Content', {}).get('string', '')[m
+[36m@@ -538,6 +598,22 @@[m [mclass GeWeChatMessage(ChatMessage):[m
+ [m
+                     self.actual_user_nickname = target_nickname[m
+                     self.actual_user_id = target_username[m
+[32m+[m
+[32m+[m[32m                    # 查找邀请人信息[m
+[32m+[m[32m                    inviter_link = link_list.find(".//link[@name='username']")[m
+[32m+[m[32m                    if inviter_link is not None:[m
+[32m+[m[32m                        member = inviter_link.find('.//member')[m
+[32m+[m[32m                        if member is not None:[m
+[32m+[m[32m                            nickname_elem = member.find('nickname')[m
+[32m+[m[32m                            self.invite_nickname = nickname_elem.text if nickname_elem is not None else "未知邀请人"[m
+[32m+[m[41m                    [m
+[32m+[m[32m                    # 确认群名[m
+[32m+[m[32m                    brief_info_response = self.client.get_brief_info(self.app_id, [self.from_user_id])[m
+[32m+[m[32m                    if brief_info_response.get('ret') == 200 and brief_info_response.get('data'):[m
+[32m+[m[32m                        brief_info = brief_info_response['data'][0][m
+[32m+[m[32m                        self.group_name = brief_info.get('nickName', self.from_user_id)[m
+[32m+[m[32m                    else:[m
+[32m+[m[32m                        self.group_name = self.from_user_id[m
+                     [m
+                     logger.debug(f"[gewechat] parsed group system message: {self.content} "[m
+                                 f"type: {content_type} user: {target_nickname} ({target_username})")[m
+[36m@@ -551,6 +627,74 @@[m [mclass GeWeChatMessage(ChatMessage):[m
+         elif self.msg_data['MsgType'] == 47:[m
+             self.ctype = ContextType.EMOJI[m
+             self.content = self.msg_data.get('Content', {}).get('string', '')[m
+[32m+[m[32m        elif self.msg_data['MsgType'] == 10000 and self.is_group:  # 群系统纯文本消息（如"A"邀请"B"加入了群聊）[m
+[32m+[m[32m            content = self.msg_data.get('Content', {}).get('string', '')[m
+[32m+[m[32m            logger.info(f"[gewechat] detected group system text message(10000): {content}")[m
+[32m+[m[32m            try:[m
+[32m+[m[32m                # 优先从引号中抽取被邀请人昵称[m
+[32m+[m[32m                invited_names = [][m
+[32m+[m[32m                try:[m
+[32m+[m[32m                    invited_names = re.findall(r'"([^\"]+)"加入了群聊', content)[m
+[32m+[m[32m                    if not invited_names:[m
+[32m+[m[32m                        # 匹配 "邀请"B"加入了群聊" 模式[m
+[32m+[m[32m                        m = re.search(r'邀请\"([^\"]+)\"加入了群聊', content)[m
+[32m+[m[32m                        if m:[m
+[32m+[m[32m                            invited_names = [m.group(1)][m
+[32m+[m[32m                    # 新增：匹配扫码进群的可能格式[m
+[32m+[m[32m                    if not invited_names:[m
+[32m+[m[32m                        # 匹配可能的扫码进群格式："XXX"通过扫描群二维码加入群聊[m
+[32m+[m[32m                        qr_patterns = [[m
+[32m+[m[32m                            r'"([^\"]+)"通过.*二维码.*加入',[m
+[32m+[m[32m                            r'"([^\"]+)"扫.*码.*加入',[m
+[32m+[m[32m                            r'"([^\"]+)".*scan.*join',[m
+[32m+[m[32m                            r'"([^\"]+)".*QR.*join',[m
+[32m+[m[32m                            r'"([^\"]+)"通过.*群.*加入'[m
+[32m+[m[32m                        ][m
+[32m+[m[32m                        for pattern in qr_patterns:[m
+[32m+[m[32m                            qr_match = re.search(pattern, content, re.IGNORECASE)[m
+[32m+[m[32m                            if qr_match:[m
+[32m+[m[32m                                invited_names = [qr_match.group(1)][m
+[32m+[m[32m                                logger.info(f"[gewechat] detected QR code join: {content}")[m
+[32m+[m[32m                                break[m
+[32m+[m[32m                except Exception:[m
+[32m+[m[32m                    invited_names = [][m
+[32m+[m[32m                if invited_names:[m
+[32m+[m[32m                    self.actual_user_nickname = '、'.join(invited_names)[m
+[32m+[m[32m                # 判断加入/移出 - 扩展判断条件[m
+[32m+[m[32m                if ("加入了群聊" in content or[m[41m [m
+[32m+[m[32m                    "加入群聊" in content or[m[41m [m
+[32m+[m[32m                    "二维码" in content or[m[41m [m
+[32m+[m[32m                    "扫码" in content or[m
+[32m+[m[32m                    "scan" in content.lower() or[m
+[32m+[m[32m                    "join" in content.lower()):[m
+[32m+[m[32m                    self.ctype = ContextType.JOIN_GROUP[m
+[32m+[m[32m                    logger.info(f"[gewechat] identified as JOIN_GROUP: {content}")[m
+[32m+[m[32m                elif "移出了群聊" in content:[m
+[32m+[m[32m                    self.ctype = ContextType.EXIT_GROUP[m
+[32m+[m[32m                else:[m
+[32m+[m[32m                    # 未识别，记录日志用于调试[m
+[32m+[m[32m                    logger.warning(f"[gewechat] unrecognized group system message: {content}")[m
+[32m+[m[32m                    self.ctype = ContextType.TEXT[m
+[32m+[m[32m                self.content = content[m
+[32m+[m[32m                # 提取邀请人昵称[m
+[32m+[m[32m                inviter_match = re.search(r'\"([^\"]+)\"邀请', content)[m
+[32m+[m[32m                if inviter_match:[m
+[32m+[m[32m                    self.invite_nickname = inviter_match.group(1)[m
+[32m+[m[32m                else:[m
+[32m+[m[32m                    # 扫码进群时没有邀请人，设置为空字符串[m
+[32m+[m[32m                    self.invite_nickname = ""[m
+[32m+[m[41m                [m
+[32m+[m[32m                # 确认群名[m
+[32m+[m[32m                brief_info_response = self.client.get_brief_info(self.app_id, [self.from_user_id])[m
+[32m+[m[32m                if brief_info_response.get('ret') == 200 and brief_info_response.get('data'):[m
+[32m+[m[32m                    brief_info = brief_info_response['data'][0][m
+[32m+[m[32m                    self.group_name = brief_info.get('nickName', self.from_user_id)[m
+[32m+[m[32m                else:[m
+[32m+[m[32m                    self.group_name = self.from_user_id[m
+[32m+[m[32m            except Exception as e:[m
+[32m+[m[32m                logger.error(f"[gewechat] Unexpected error parsing 10000 system message: {e}")[m
+[32m+[m[32m                self.content = content[m
+[32m+[m[32m                self.ctype = ContextType.TEXT[m
+         else:[m
+             raise NotImplementedError(f"Unsupported message type: Type:{self.msg_data['MsgType']}")[m
+ [m
+[36m@@ -561,33 +705,36 @@[m [mclass GeWeChatMessage(ChatMessage):[m
+             self.other_user_nickname = brief_info.get('nickName', self.other_user_id)[m
+ [m
+         if self.is_group:[m
+[31m-            # 如果是群聊消息，获取实际发送者信息[m
+[31m-            self.actual_user_id = self.msg_data.get('Content', {}).get('string', '').split(':', 1)[0][m
+[31m-            # 从群成员列表中获取实际发送者信息[m
+[31m-            chatroom_member_list_response = self.client.get_chatroom_member_list(self.app_id, self.from_user_id)[m
+[31m-            if chatroom_member_list_response.get('ret') == 200 and chatroom_member_list_response.get('data', {}).get('memberList'):[m
+[31m-                # 从群成员列表中匹配acual_user_id[m
+[31m-                for member_info in chatroom_member_list_response['data']['memberList']:[m
+[31m-                    if member_info['wxid'] == self.actual_user_id:[m
+[31m-                         # 先获取displayName，如果displayName为空，再获取nickName[m
+[31m-                        self.actual_user_nickname = member_info.get('displayName') or member_info.get('nickName', self.actual_user_id)[m
+[31m-                        break[m
+[31m-            self.actual_user_nickname = self.actual_user_nickname or self.actual_user_id[m
+[32m+[m[32m            if self.ctype == ContextType.TEXT:[m
+[32m+[m[32m                # 如果是群聊消息，获取实际发送者信息[m
+[32m+[m[32m                self.actual_user_id = self.msg_data.get('Content', {}).get('string', '').split(':', 1)[0][m
+[32m+[m[32m                # 从群成员列表中获取实际发送者信息[m
+[32m+[m[32m                chatroom_member_list_response = self.client.get_chatroom_member_list(self.app_id, self.from_user_id)[m
+[32m+[m[32m                if chatroom_member_list_response.get('ret') == 200 and chatroom_member_list_response.get('data', {}).get('memberList'):[m
+[32m+[m[32m                    # 从群成员列表中匹配acual_user_id[m
+[32m+[m[32m                    for member_info in chatroom_member_list_response['data']['memberList']:[m
+[32m+[m[32m                        if member_info['wxid'] == self.actual_user_id:[m
+[32m+[m[32m                             # 先获取displayName，如果displayName为空，再获取nickName[m
+[32m+[m[32m                            self.actual_user_nickname = member_info.get('displayName') or member_info.get('nickName', self.actual_user_id)[m
+[32m+[m[32m                            break[m
+[32m+[m[32m                self.actual_user_nickname = self.actual_user_nickname or self.actual_user_id[m
+ [m
+[31m-            # 确保self.content是字符串后进行替换[m
+[31m-            self.content = str(self.content)[m
+[31m-            # 保存原始内容到raw_content[m
+[31m-            self.raw_content = self.content[m
+[31m-            # 移除发送者ID前缀[m
+[31m-            self.content = re.sub(f'{self.actual_user_id}:\n', '', self.content)[m
+[31m-            # 移除@标记，但保留原始内容[m
+[31m-            self.content = re.sub(r'@[^\u2005]+\u2005', '', self.content)[m
+[32m+[m[32m                # 确保self.content是字符串后进行替换[m
+[32m+[m[32m                self.content = str(self.content)[m
+[32m+[m[32m                # 保存原始内容到raw_content[m
+[32m+[m[32m                self.raw_content = self.content[m
+[32m+[m[32m                # 移除发送者ID前缀[m
+[32m+[m[32m                self.content = re.sub(f'{self.actual_user_id}:\n', '', self.content)[m
+[32m+[m[32m                # 移除@标记，但保留原始内容[m
+[32m+[m[32m                self.content = re.sub(r'@[^\u2005]+\u2005', '', self.content)[m
+[32m+[m[32m            # 对于群聊中的其他消息类型（如JOIN_GROUP），不覆盖已设置的actual_user_nickname[m
+         else:[m
+             # 如果不是群聊消息，保持结构统一，也要设置actual_user_id和actual_user_nickname[m
+             self.actual_user_id = self.other_user_id[m
+             self.actual_user_nickname = self.other_user_nickname[m
+ [m
+         self.my_msg = self.msg.get('Wxid') == self.from_user_id[m
+[32m+[m[32m        logger.debug(f"[gewechat] my_msg check: Wxid={self.msg.get('Wxid')}, from_user_id={self.from_user_id}, my_msg={self.my_msg}")[m
+ [m
+     def download_voice(self):[m
+         try:[m

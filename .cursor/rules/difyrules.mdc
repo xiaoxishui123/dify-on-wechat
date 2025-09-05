@@ -1,0 +1,8 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+总是用sh start.sh ;tail -f wechat_robot.log命令启动服务
+查询进程可以用ps aux|grep app.py命令
+杀死进程可以用kill -9 id  命令

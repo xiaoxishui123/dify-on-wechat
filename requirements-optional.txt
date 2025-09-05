@@ -48,3 +48,6 @@ gradio
 gradio_client
 # tongyi qwen new sdk
 dashscope
+
+# Playwright browser automation
+playwright==1.48.0

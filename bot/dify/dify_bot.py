@@ -33,7 +33,10 @@ class DifyBot(Bot):
         :param query: 消息内容
         :return: 是否跳过
         """
+        logger.debug(f"[dify] _should_skip_message checking: '{query[:100]}...'")
+        
         if not query:
+            logger.debug("[dify] Skip message: empty query")
             return True
             
         # 检查是否包含 @所有人 或 @all
@@ -46,6 +49,12 @@ class DifyBot(Bot):
             logger.info("[dify] Not skipping invite message")
             return False
             
+        # 如果是来自插件的消息，不跳过处理
+        if query and ('欢迎' in query or 'Welcome' in query):
+            logger.info("[dify] Not skipping welcome message from plugin")
+            return False
+            
+        logger.debug("[dify] Not skipping message")
         return False
 
     def _clean_query(self, query: str, context: dict) -> str:
@@ -112,7 +121,7 @@ class DifyBot(Bot):
             logger.info("- actual_user_nickname: %s", getattr(msg, 'actual_user_nickname', ''))
 
             # 检查是否需要跳过处理
-            if self._should_skip_message(raw_content):
+            if not context.get("from_plugin") and self._should_skip_message(raw_content):
                 logger.info("[dify] Skipping message due to special commands")
                 return Reply(ReplyType.TEXT, "")
 
@@ -141,7 +150,7 @@ class DifyBot(Bot):
                     has_prefix = True
                 
                 # 如果配置了前缀，则只响应包含配置前缀的消息
-                if group_chat_prefix and not has_prefix:
+                if group_chat_prefix and not has_prefix and not context.get("is_plugin_welcome"):
                     logger.info("[dify] Group chat requires configured prefix but message doesn't have it, skip")
                     return Reply(ReplyType.TEXT, "")
 
@@ -318,7 +327,17 @@ class DifyBot(Bot):
         channel = context.get("channel")
         is_group = context.get("isgroup", False)
         if is_group:
-            at_prefix = "@" + context["msg"].actual_user_nickname + "\n"
+            # 添加空值检查，防止actual_user_nickname为None时拼接失败
+            actual_user_nickname = getattr(context["msg"], 'actual_user_nickname', None)
+            if actual_user_nickname:
+                at_prefix = "@" + actual_user_nickname + "\n"
+            else:
+                # 如果actual_user_nickname为空，使用actual_user_id作为备选
+                actual_user_id = getattr(context["msg"], 'actual_user_id', None)
+                if actual_user_id:
+                    at_prefix = "@" + str(actual_user_id) + "\n"
+                else:
+                    at_prefix = "@未知用户\n"
         for item in parsed_content[:-1]:
             reply = None
             if item['type'] == 'text':
@@ -349,7 +368,17 @@ class DifyBot(Bot):
         if final_item['type'] == 'text':
             content = final_item['content']
             if is_group:
-                at_prefix = "@" + context["msg"].actual_user_nickname + "\n"
+                # 添加空值检查，防止actual_user_nickname为None时拼接失败
+                actual_user_nickname = getattr(context["msg"], 'actual_user_nickname', None)
+                if actual_user_nickname:
+                    at_prefix = "@" + actual_user_nickname + "\n"
+                else:
+                    # 如果actual_user_nickname为空，使用actual_user_id作为备选
+                    actual_user_id = getattr(context["msg"], 'actual_user_id', None)
+                    if actual_user_id:
+                        at_prefix = "@" + str(actual_user_id) + "\n"
+                    else:
+                        at_prefix = "@未知用户\n"
                 content = at_prefix + content
             final_reply = Reply(ReplyType.TEXT, final_item['content'])
         elif final_item['type'] == 'image':
@@ -440,7 +469,17 @@ class DifyBot(Bot):
         for msg in msgs[:-1]:
             if msg['type'] == 'agent_message':
                 if is_group:
-                    at_prefix = "@" + context["msg"].actual_user_nickname + "\n"
+                    # 添加空值检查，防止actual_user_nickname为None时拼接失败
+                    actual_user_nickname = getattr(context["msg"], 'actual_user_nickname', None)
+                    if actual_user_nickname:
+                        at_prefix = "@" + actual_user_nickname + "\n"
+                    else:
+                        # 如果actual_user_nickname为空，使用actual_user_id作为备选
+                        actual_user_id = getattr(context["msg"], 'actual_user_id', None)
+                        if actual_user_id:
+                            at_prefix = "@" + str(actual_user_id) + "\n"
+                        else:
+                            at_prefix = "@未知用户\n"
                     msg['content'] = at_prefix + msg['content']
                 reply = Reply(ReplyType.TEXT, msg['content'])
                 channel.send(reply, context)

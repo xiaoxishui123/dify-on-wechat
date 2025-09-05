@@ -30,6 +30,6 @@ config.json 配置说明
 ```
 
 提交代码：
-git add .
-git commit -m "你的更新说明"
-git push
+git add . - 添加所有更改到暂存区
+git commit -m "你的提交说明" - 提交更改并添加说明
+git push origin main - 推送到 GitHub

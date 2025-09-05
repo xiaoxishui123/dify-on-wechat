@@ -57,16 +57,20 @@ class ChatChannel(Channel):
                 group_name = cmsg.other_user_nickname
                 group_id = cmsg.other_user_id
                 context["group_name"] = group_name
+                logger.info(f"[chat_channel] Group message: group_name='{group_name}', group_id='{group_id}'")
 
                 group_name_white_list = config.get("group_name_white_list", [])
                 group_name_keyword_white_list = config.get("group_name_keyword_white_list", [])
-                if any(
+                logger.info(f"[chat_channel] Whitelist check: group_name_white_list={group_name_white_list}, group_name_keyword_white_list={group_name_keyword_white_list}")
+                whitelist_match = any(
                         [
                             group_name in group_name_white_list,
                             "ALL_GROUP" in group_name_white_list,
                             check_contain(group_name, group_name_keyword_white_list),
                         ]
-                ):
+                )
+                logger.info(f"[chat_channel] Whitelist match result: {whitelist_match}")
+                if whitelist_match:
                     group_chat_in_one_session = conf().get("group_chat_in_one_session", [])
                     session_id = f"{cmsg.actual_user_id}@@{group_id}" # 当群聊未共享session时，session_id为user_id与group_id的组合，用于区分不同群聊以及单聊
                     context["is_shared_session_group"] = False  # 默认为非共享会话群
@@ -86,8 +90,10 @@ class ChatChannel(Channel):
             else:
                 context["session_id"] = cmsg.other_user_id
                 context["receiver"] = cmsg.other_user_id
+            logger.info(f"[chat_channel] Before plugin event: context is not None: {context is not None}")
             e_context = PluginManager().emit_event(EventContext(Event.ON_RECEIVE_MESSAGE, {"channel": self, "context": context}))
             context = e_context["context"]
+            logger.info(f"[chat_channel] After plugin event: context is not None: {context is not None}, is_pass: {e_context.is_pass()}")
             if e_context.is_pass() or context is None:
                 return context
             if cmsg.from_user_id == self.user_id and not config.get("trigger_by_self", True):
@@ -165,6 +171,40 @@ class ChatChannel(Channel):
             if "desire_rtype" not in context and conf().get(
                     "voice_reply_voice") and ReplyType.VOICE not in self.NOT_SUPPORT_REPLYTYPE:
                 context["desire_rtype"] = ReplyType.VOICE
+        elif context.type == ContextType.JOIN_GROUP:
+            # 处理加入群聊消息，确保能够触发Hello插件的欢迎功能
+            logger.debug(f"[chat_channel] Processing JOIN_GROUP message: {content}")
+            # 设置必要的上下文信息
+            if context.get("isgroup", False):
+                cmsg = context["msg"]
+                group_name = cmsg.other_user_nickname
+                group_id = cmsg.other_user_id
+                context["group_name"] = group_name
+                context["session_id"] = group_id
+                context["receiver"] = group_id
+                logger.debug(f"[chat_channel] JOIN_GROUP context prepared: group_name={group_name}, group_id={group_id}")
+        elif context.type == ContextType.EXIT_GROUP:
+            # 处理退出群聊消息
+            logger.debug(f"[chat_channel] Processing EXIT_GROUP message: {content}")
+            if context.get("isgroup", False):
+                cmsg = context["msg"]
+                group_name = cmsg.other_user_nickname
+                group_id = cmsg.other_user_id
+                context["group_name"] = group_name
+                context["session_id"] = group_id
+                context["receiver"] = group_id
+                logger.debug(f"[chat_channel] EXIT_GROUP context prepared: group_name={group_name}, group_id={group_id}")
+        elif context.type == ContextType.PATPAT:
+            # 处理拍一拍消息
+            logger.debug(f"[chat_channel] Processing PATPAT message: {content}")
+            if context.get("isgroup", False):
+                cmsg = context["msg"]
+                group_name = cmsg.other_user_nickname
+                group_id = cmsg.other_user_id
+                context["group_name"] = group_name
+                context["session_id"] = group_id
+                context["receiver"] = group_id
+                logger.debug(f"[chat_channel] PATPAT context prepared: group_name={group_name}, group_id={group_id}")
         return context
 
     def _handle(self, context: Context):
@@ -262,7 +302,17 @@ class ChatChannel(Channel):
                         return self._decorate_reply(context, reply)
                     if context.get("isgroup", False):
                         if not conf().get("no_need_at", False):
-                            reply_text = "@" + context["msg"].actual_user_nickname + "\n" + reply_text.strip()
+                            # 添加空值检查，防止actual_user_nickname为None时拼接失败
+                            actual_user_nickname = getattr(context["msg"], 'actual_user_nickname', None)
+                            if actual_user_nickname:
+                                reply_text = "@" + actual_user_nickname + "\n" + reply_text.strip()
+                            else:
+                                # 如果actual_user_nickname为空，使用actual_user_id作为备选
+                                actual_user_id = getattr(context["msg"], 'actual_user_id', None)
+                                if actual_user_id:
+                                    reply_text = "@" + str(actual_user_id) + "\n" + reply_text.strip()
+                                else:
+                                    reply_text = "@未知用户\n" + reply_text.strip()
                         reply_text = conf().get("group_chat_reply_prefix", "") + reply_text + conf().get(
                             "group_chat_reply_suffix", "")
                     else:

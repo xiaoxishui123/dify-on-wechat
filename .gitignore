@@ -28,6 +28,7 @@ plugins/**/config.json
 plugins/banwords/__pycache__
 plugins/banwords/lib/__pycache__
 !plugins/hello
+!plugins/chinespua
 !plugins/role
 !plugins/keyword
 !plugins/linkai
@@ -36,7 +37,6 @@ plugins/banwords/lib/__pycache__
 !plugins/custom_dify_app
 !plugins/group_at_autoreply
 client_config.json
-gewechat/
 
 # auto coder
 .auto-coder

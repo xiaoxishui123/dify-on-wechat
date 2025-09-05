@@ -338,6 +338,7 @@ class GeWeChatMessage(ChatMessage):
             return
         self.msg_id = self.msg_data['NewMsgId']
         self.is_group = True if "@chatroom" in self.msg_data['FromUserName']['string'] else False
+        logger.info(f"[gewechat] is_group determination: FromUserName={self.msg_data['FromUserName']['string']}, is_group={self.is_group}")
 
         notes_join_group = ["加入群聊", "加入了群聊", "invited", "joined", "移出了群聊"]
         notes_bot_join_group = ["邀请你", "invited you", "You've joined", "你通过扫描"]
@@ -353,6 +354,8 @@ class GeWeChatMessage(ChatMessage):
             logger.debug(f"[gewechat] detected non-user message from {self.from_user_id}: {self.content}")
             return
 
+        logger.info(f"[gewechat] Processing message with MsgType: {self.msg_data['MsgType']}, msg_id: {self.msg_id}")
+        
         if self.msg_data['MsgType'] == 1:  # Text message
             self.ctype = ContextType.TEXT
             # 保存原始消息内容
@@ -407,27 +410,62 @@ class GeWeChatMessage(ChatMessage):
             self.content = TmpDir().path() + str(self.msg_id) + ".png"
             self._prepare_fn = self.download_image
         elif self.msg_data['MsgType'] == 49:  # 引用消息，小程序，公众号等
+            logger.info(f"[gewechat] Processing MsgType 49 message, msg_id: {self.msg_id}")
+            # 保存原始消息内容
+            self.raw_content = self.msg_data.get('Content', {}).get('string', '')
             # After getting content_xml
             content_xml = self.msg_data['Content']['string']
+            logger.debug(f"[gewechat] Raw content_xml: {content_xml[:500]}...")  # 只显示前500字符避免日志过长
+            
             # Find the position of '<?xml' declaration and remove any prefix
             xml_start = content_xml.find('<?xml version=')
             if xml_start != -1:
                 content_xml = content_xml[xml_start:]
+                logger.debug(f"[gewechat] Cleaned content_xml: {content_xml[:500]}...")
+            
             try:
                 root = ET.fromstring(content_xml)
                 appmsg = root.find('appmsg')
                 if appmsg is not None:
                     msg_type_node = appmsg.find('type')
+                    msg_type_value = msg_type_node.text if msg_type_node is not None else 'None'
+                    logger.info(f"[gewechat] Found appmsg with type: {msg_type_value}")
+                    
                     if msg_type_node is not None and msg_type_node.text == '57':
+                        logger.info(f"[gewechat] Detected quote message (type=57)")
                         self.ctype = ContextType.TEXT
                         refermsg = appmsg.find('refermsg')
                         if refermsg is not None:
                             displayname = refermsg.find('displayname').text if refermsg.find('displayname') is not None else ''
                             quoted_content = refermsg.find('content').text if refermsg.find('content') is not None else ''
                             title = appmsg.find('title').text if appmsg.find('title') is not None else ''
-                            self.content = f"「{displayname}: {quoted_content}」----------\n{title}"
+                            # 优化引用消息格式：先显示用户的新消息，再显示引用内容
+                            self.content = f"{title}\n\n[引用了 {displayname}: {quoted_content}]"
+                            logger.info(f"[gewechat] Quote message parsed - displayname: {displayname}, quoted: {quoted_content}, title: {title}")
+                            
+                            # 为引用消息设置发送者信息和@状态
+                            if self.is_group:
+                                # 从消息内容中提取发送者ID
+                                content_string = self.msg_data.get('Content', {}).get('string', '')
+                                logger.info(f"[gewechat] Group quote message - content_string: {content_string[:100]}")
+                                if ':' in content_string:
+                                    self.actual_user_id = content_string.split(':', 1)[0]
+                                    logger.info(f"[gewechat] Set actual_user_id for group quote message: {self.actual_user_id}")
+                                else:
+                                    logger.warning(f"[gewechat] No ':' found in group quote message content")
+                                
+                                # 检查引用消息是否@机器人 - 检查title和quoted内容
+                                if self.to_user_nickname and (self.to_user_nickname in title or self.to_user_nickname in quoted_content):
+                                    self.is_at = True
+                                    logger.info(f"[gewechat] Quote message contains bot nickname '{self.to_user_nickname}', set is_at=True")
+                                else:
+                                    logger.info(f"[gewechat] Quote message does not contain bot nickname '{self.to_user_nickname}', is_at=False")
+                            else:
+                                logger.info(f"[gewechat] Private quote message - using from_user_id: {self.from_user_id}")
+                                self.actual_user_id = self.from_user_id
                         else:
                             self.content = content_xml
+                            logger.warning(f"[gewechat] Quote message has no refermsg element")
                     elif msg_type_node is not None and msg_type_node.text == '5':
                         title = appmsg.find('title').text if appmsg.find('title') is not None else "无标题"
                         if "加入群聊" in title:
@@ -438,14 +476,36 @@ class GeWeChatMessage(ChatMessage):
                             self.ctype = ContextType.SHARING
                             self.content = url
                     else:
+                        logger.info(f"[gewechat] MsgType 49 with unsupported app type: {msg_type_value}")
                         self.ctype = ContextType.TEXT
                         self.content = content_xml
                 else:
+                    logger.warning(f"[gewechat] MsgType 49 has no appmsg element")
                     self.ctype = ContextType.TEXT
                     self.content = content_xml
-            except ET.ParseError:
+            except ET.ParseError as e:
+                logger.error(f"[gewechat] Failed to parse XML for MsgType 49: {e}")
+                logger.debug(f"[gewechat] Problematic XML: {content_xml}")
                 self.ctype = ContextType.TEXT
                 self.content = content_xml
+            
+            # 为分享消息设置发送者信息
+            if self.is_group:
+                # 从消息内容中提取发送者ID
+                content_string = self.msg_data.get('Content', {}).get('string', '')
+                if ':' in content_string:
+                    self.actual_user_id = content_string.split(':', 1)[0]
+                    # 从群成员列表中获取实际发送者信息
+                    chatroom_member_list_response = self.client.get_brief_info(self.app_id, [self.actual_user_id])
+                    if chatroom_member_list_response.get('ret') == 200 and chatroom_member_list_response.get('data'):
+                        brief_info = chatroom_member_list_response['data'][0]
+                        self.actual_user_nickname = brief_info.get('nickName', self.actual_user_id)
+                    else:
+                        self.actual_user_nickname = self.actual_user_id
+                else:
+                    # 如果无法提取发送者ID，使用from_user_id
+                    self.actual_user_id = self.from_user_id
+                    self.actual_user_nickname = self.other_user_nickname
         elif self.msg_data['MsgType'] == 51:
             self.ctype = ContextType.STATUS_SYNC
             self.content = self.msg_data.get('Content', {}).get('string', '')
@@ -538,6 +598,22 @@ class GeWeChatMessage(ChatMessage):
 
                     self.actual_user_nickname = target_nickname
                     self.actual_user_id = target_username
+
+                    # 查找邀请人信息
+                    inviter_link = link_list.find(".//link[@name='username']")
+                    if inviter_link is not None:
+                        member = inviter_link.find('.//member')
+                        if member is not None:
+                            nickname_elem = member.find('nickname')
+                            self.invite_nickname = nickname_elem.text if nickname_elem is not None else "未知邀请人"
+                    
+                    # 确认群名
+                    brief_info_response = self.client.get_brief_info(self.app_id, [self.from_user_id])
+                    if brief_info_response.get('ret') == 200 and brief_info_response.get('data'):
+                        brief_info = brief_info_response['data'][0]
+                        self.group_name = brief_info.get('nickName', self.from_user_id)
+                    else:
+                        self.group_name = self.from_user_id
                     
                     logger.debug(f"[gewechat] parsed group system message: {self.content} "
                                 f"type: {content_type} user: {target_nickname} ({target_username})")
@@ -551,6 +627,74 @@ class GeWeChatMessage(ChatMessage):
         elif self.msg_data['MsgType'] == 47:
             self.ctype = ContextType.EMOJI
             self.content = self.msg_data.get('Content', {}).get('string', '')
+        elif self.msg_data['MsgType'] == 10000 and self.is_group:  # 群系统纯文本消息（如"A"邀请"B"加入了群聊）
+            content = self.msg_data.get('Content', {}).get('string', '')
+            logger.info(f"[gewechat] detected group system text message(10000): {content}")
+            try:
+                # 优先从引号中抽取被邀请人昵称
+                invited_names = []
+                try:
+                    invited_names = re.findall(r'"([^\"]+)"加入了群聊', content)
+                    if not invited_names:
+                        # 匹配 "邀请"B"加入了群聊" 模式
+                        m = re.search(r'邀请\"([^\"]+)\"加入了群聊', content)
+                        if m:
+                            invited_names = [m.group(1)]
+                    # 新增：匹配扫码进群的可能格式
+                    if not invited_names:
+                        # 匹配可能的扫码进群格式："XXX"通过扫描群二维码加入群聊
+                        qr_patterns = [
+                            r'"([^\"]+)"通过.*二维码.*加入',
+                            r'"([^\"]+)"扫.*码.*加入',
+                            r'"([^\"]+)".*scan.*join',
+                            r'"([^\"]+)".*QR.*join',
+                            r'"([^\"]+)"通过.*群.*加入'
+                        ]
+                        for pattern in qr_patterns:
+                            qr_match = re.search(pattern, content, re.IGNORECASE)
+                            if qr_match:
+                                invited_names = [qr_match.group(1)]
+                                logger.info(f"[gewechat] detected QR code join: {content}")
+                                break
+                except Exception:
+                    invited_names = []
+                if invited_names:
+                    self.actual_user_nickname = '、'.join(invited_names)
+                # 判断加入/移出 - 扩展判断条件
+                if ("加入了群聊" in content or 
+                    "加入群聊" in content or 
+                    "二维码" in content or 
+                    "扫码" in content or
+                    "scan" in content.lower() or
+                    "join" in content.lower()):
+                    self.ctype = ContextType.JOIN_GROUP
+                    logger.info(f"[gewechat] identified as JOIN_GROUP: {content}")
+                elif "移出了群聊" in content:
+                    self.ctype = ContextType.EXIT_GROUP
+                else:
+                    # 未识别，记录日志用于调试
+                    logger.warning(f"[gewechat] unrecognized group system message: {content}")
+                    self.ctype = ContextType.TEXT
+                self.content = content
+                # 提取邀请人昵称
+                inviter_match = re.search(r'\"([^\"]+)\"邀请', content)
+                if inviter_match:
+                    self.invite_nickname = inviter_match.group(1)
+                else:
+                    # 扫码进群时没有邀请人，设置为空字符串
+                    self.invite_nickname = ""
+                
+                # 确认群名
+                brief_info_response = self.client.get_brief_info(self.app_id, [self.from_user_id])
+                if brief_info_response.get('ret') == 200 and brief_info_response.get('data'):
+                    brief_info = brief_info_response['data'][0]
+                    self.group_name = brief_info.get('nickName', self.from_user_id)
+                else:
+                    self.group_name = self.from_user_id
+            except Exception as e:
+                logger.error(f"[gewechat] Unexpected error parsing 10000 system message: {e}")
+                self.content = content
+                self.ctype = ContextType.TEXT
         else:
             raise NotImplementedError(f"Unsupported message type: Type:{self.msg_data['MsgType']}")
 
@@ -561,33 +705,36 @@ class GeWeChatMessage(ChatMessage):
             self.other_user_nickname = brief_info.get('nickName', self.other_user_id)
 
         if self.is_group:
-            # 如果是群聊消息，获取实际发送者信息
-            self.actual_user_id = self.msg_data.get('Content', {}).get('string', '').split(':', 1)[0]
-            # 从群成员列表中获取实际发送者信息
-            chatroom_member_list_response = self.client.get_chatroom_member_list(self.app_id, self.from_user_id)
-            if chatroom_member_list_response.get('ret') == 200 and chatroom_member_list_response.get('data', {}).get('memberList'):
-                # 从群成员列表中匹配acual_user_id
-                for member_info in chatroom_member_list_response['data']['memberList']:
-                    if member_info['wxid'] == self.actual_user_id:
-                         # 先获取displayName，如果displayName为空，再获取nickName
-                        self.actual_user_nickname = member_info.get('displayName') or member_info.get('nickName', self.actual_user_id)
-                        break
-            self.actual_user_nickname = self.actual_user_nickname or self.actual_user_id
+            if self.ctype == ContextType.TEXT:
+                # 如果是群聊消息，获取实际发送者信息
+                self.actual_user_id = self.msg_data.get('Content', {}).get('string', '').split(':', 1)[0]
+                # 从群成员列表中获取实际发送者信息
+                chatroom_member_list_response = self.client.get_chatroom_member_list(self.app_id, self.from_user_id)
+                if chatroom_member_list_response.get('ret') == 200 and chatroom_member_list_response.get('data', {}).get('memberList'):
+                    # 从群成员列表中匹配acual_user_id
+                    for member_info in chatroom_member_list_response['data']['memberList']:
+                        if member_info['wxid'] == self.actual_user_id:
+                             # 先获取displayName，如果displayName为空，再获取nickName
+                            self.actual_user_nickname = member_info.get('displayName') or member_info.get('nickName', self.actual_user_id)
+                            break
+                self.actual_user_nickname = self.actual_user_nickname or self.actual_user_id
 
-            # 确保self.content是字符串后进行替换
-            self.content = str(self.content)
-            # 保存原始内容到raw_content
-            self.raw_content = self.content
-            # 移除发送者ID前缀
-            self.content = re.sub(f'{self.actual_user_id}:\n', '', self.content)
-            # 移除@标记，但保留原始内容
-            self.content = re.sub(r'@[^\u2005]+\u2005', '', self.content)
+                # 确保self.content是字符串后进行替换
+                self.content = str(self.content)
+                # 保存原始内容到raw_content
+                self.raw_content = self.content
+                # 移除发送者ID前缀
+                self.content = re.sub(f'{self.actual_user_id}:\n', '', self.content)
+                # 移除@标记，但保留原始内容
+                self.content = re.sub(r'@[^\u2005]+\u2005', '', self.content)
+            # 对于群聊中的其他消息类型（如JOIN_GROUP），不覆盖已设置的actual_user_nickname
         else:
             # 如果不是群聊消息，保持结构统一，也要设置actual_user_id和actual_user_nickname
             self.actual_user_id = self.other_user_id
             self.actual_user_nickname = self.other_user_nickname
 
         self.my_msg = self.msg.get('Wxid') == self.from_user_id
+        logger.debug(f"[gewechat] my_msg check: Wxid={self.msg.get('Wxid')}, from_user_id={self.from_user_id}, my_msg={self.my_msg}")
 
     def download_voice(self):
         try:

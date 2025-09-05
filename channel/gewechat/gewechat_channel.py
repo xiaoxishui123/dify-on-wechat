@@ -152,6 +152,25 @@ class GeWeChatChannel(ChatChannel):
                     except Exception as e:
                         logger.error(f"[gewechat]sendImage, failed to convert image: {e}")
                         return
+            elif reply.type == ReplyType.IMAGE:
+                # 如果是本地图片文件路径，需要转换为 BytesIO 对象
+                if isinstance(reply.content, str):
+                    import io
+                    try:
+                        with open(reply.content, "rb") as f:
+                            image_storage = io.BytesIO(f.read())
+                    except Exception as e:
+                        logger.error(f"[gewechat]sendImage, failed to read local image file: {e}")
+                        return
+                else:
+                    image_storage = reply.content
+            
+            # 确保 image_storage 是 BytesIO 对象后再进行后续操作
+            if not hasattr(image_storage, 'seek'):
+                logger.error(f"[gewechat]sendImage, image_storage is not a seekable object: {type(image_storage)}")
+                return
+                
+            # Save image to tmp directory 
             # Save image to tmp directory
             image_storage.seek(0)
             header = image_storage.read(6)
@@ -178,6 +197,25 @@ class GeWeChatChannel(ChatChannel):
                 new_img_file_path = TmpDir().path() + str(newMsgId) + extension
                 os.rename(img_file_path, new_img_file_path)
                 logger.info("[gewechat] sendImage rename to {}".format(new_img_file_path))
+
+    def _gen_join_group_context(self, msg: GeWeChatMessage) -> Context:
+        logger.debug(f"[gewechat] handle join group message: {msg.content}")
+        # 成员入群的原始数据格式
+        # 'content': '"xxx"邀请"yyy"加入了群聊',
+        # 'msg_type': 10000,
+        context = self._compose_context(
+            ContextType.JOIN_GROUP, 
+            msg.content, 
+            isgroup=True, 
+            msg=msg,
+            # 群名
+            group_name=msg.group_name,
+            # 邀请人昵称
+            invite_nickname=msg.invite_nickname, 
+            # 被邀请人昵称
+            actual_user_nickname=msg.actual_user_nickname
+        )
+        return context
 
 class Query:
     def GET(self):
@@ -220,6 +258,15 @@ class Query:
             logger.debug(f"[gewechat] ignore status sync message: {gewechat_msg.content}")
             return "success"
 
+        # 成员入群事件
+        if gewechat_msg.ctype == ContextType.JOIN_GROUP:
+            # 成员入群，构造context
+            context = channel._gen_join_group_context(gewechat_msg)
+            if context:
+                channel.produce(context)
+            return "success"
+
+
         # 忽略非用户消息（如公众号、系统通知等）
         if gewechat_msg.ctype == ContextType.NON_USER_MSG:
             logger.debug(f"[gewechat] ignore non-user message from {gewechat_msg.from_user_id}: {gewechat_msg.content}")
@@ -231,21 +278,29 @@ class Query:
                 return "success"
 
         # 忽略来自自己的消息
+        logger.info(f"[gewechat] my_msg check: my_msg={gewechat_msg.my_msg}, actual_user_id={gewechat_msg.actual_user_id}, is_group={gewechat_msg.is_group}")
         if gewechat_msg.my_msg:
-            logger.debug(f"[gewechat] ignore message from myself: {gewechat_msg.actual_user_id}: {gewechat_msg.content}")
+            logger.info(f"[gewechat] ignore message from myself: actual_user_id={gewechat_msg.actual_user_id}, content={gewechat_msg.content}")
             return "success"
 
         # 忽略过期的消息
-        if int(gewechat_msg.create_time) < int(time.time()) - 60 * 5: # 跳过5分钟前的历史消息
+        if gewechat_msg.create_time and int(gewechat_msg.create_time) < int(time.time()) - 60 * 5: # 跳过5分钟前的历史消息
             logger.debug(f"[gewechat] ignore expired message from {gewechat_msg.actual_user_id}: {gewechat_msg.content}")
             return "success"
 
+        logger.info(f"[gewechat] Creating context: ctype={gewechat_msg.ctype}, content={gewechat_msg.content[:50]}..., isgroup={gewechat_msg.is_group}")
         context = channel._compose_context(
             gewechat_msg.ctype,
             gewechat_msg.content,
             isgroup=gewechat_msg.is_group,
             msg=gewechat_msg,
         )
+        logger.info(f"[gewechat] Context created: {context is not None}")
         if context:
+            logger.info(f"[gewechat] Producing context to channel")
             channel.produce(context)
+        else:
+            logger.warning(f"[gewechat] Context is None, message will not be processed")
         return "success"
+
+

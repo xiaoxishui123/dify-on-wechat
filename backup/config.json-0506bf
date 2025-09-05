@@ -1,0 +1,49 @@
+{
+    "channel_type": "gewechat",
+    "coze_api_base": "https://api.coze.cn/open_api/v2",
+    "coze_api_key": "pat_JnIOQ6ineJlmp2Ps81YwwwdxViKXSQkMsWeNzd8q31WFoP9jBh7AR1JqKepoD9W8",
+    "coze_bot_id": "7449197474322939931",
+    "debug": true,
+    "dify_api_base": "https://api.dify.ai/v1",
+    "dify_api_key": "app-9mcmx6ZTKp7TOUR17X6DHvLC",
+    "dify_app_type": "agent",
+    "gewechat_app_id": "wx_U8aRhg3Od6y2mo2p7hlHD",
+    "gewechat_base_url": "http://8.148.70.18:2531/v2/api",
+    "gewechat_callback_url": "http://8.148.70.18:9919/v2/api/callback/collect",
+    "gewechat_download_url": "http://8.148.70.18:2532/download",
+    "gewechat_token": "e501f3b172ba4cbc8f0335594e1f8f12",
+    "group_at_off": false,
+    "group_chat_in_one_session": [],
+    "group_chat_keyword": [],
+    "group_chat_prefix": [
+        "@小溪水AI助手"
+    ],
+    "group_chat_reply_prefix": "",
+    "group_chat_reply_suffix": "",
+    "group_name_keyword_white_list": [
+        "春季",
+        "咨询"
+    ],
+    "group_name_white_list": [
+        "智能体测试群",
+        "亿光年AIGC师资班",
+        "智道AI",
+        "健康管理智能体",
+        "亿光年AIGC师资班",
+        "人工智能（AIGC）学习交流群",
+        "AI创业探索",
+        "AI赋能学习交流群"
+    ],
+    "group_speech_recognition": true,
+    "image_recognition": true,
+    "model": "dify",
+    "no_need_at": false,
+    "single_chat_prefix": [
+        ""
+    ],
+    "single_chat_reply_prefix": "",
+    "speech_recognition": true,
+    "text_to_voice": "dify",
+    "voice_reply_voice": true,
+    "voice_to_text": "dify"
+}
