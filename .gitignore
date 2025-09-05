@@ -36,6 +36,8 @@ plugins/banwords/lib/__pycache__
 !plugins/jina_sum/**/
 !plugins/custom_dify_app
 !plugins/group_at_autoreply
+!plugins/group_chat_summary
+!plugins/group_chat_summary/**/
 client_config.json
 
 # auto coder
