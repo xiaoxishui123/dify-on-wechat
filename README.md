@@ -445,7 +445,65 @@ automation = PlaywrightAutomation(
 - 支持异步操作，性能更优
 - 内置错误处理和重试机制
 
+## 12. 群聊总结插件 (Group Chat Summary)
+
+本项目已集成群聊总结插件，支持自动记录群聊消息并生成结构化的聊天总结报告。
+
+### 功能特性
+- 📝 **自动记录**: 实时保存群聊消息到SQLite数据库
+- 📊 **智能总结**: 基于AI生成结构化的群聊报告
+- 🔥 **话题分析**: 按热度排序显示讨论话题
+- 👥 **参与者统计**: 显示最活跃的发言者
+- ⚙️ **灵活配置**: 支持自定义总结数量和黑名单
+- 🗂️ **数据管理**: 自动清理过期消息，保持数据库整洁
+
+### 使用方法
+
+在群聊中发送以下命令获取群聊总结：
+
+```
+总结聊天 30    # 总结最近30条消息
+总结聊天       # 使用默认数量(99条)进行总结
+```
+
+### 总结报告内容
+
+生成的总结报告包含：
+
+1. **群聊风格评价** - 整体讨论氛围分析
+2. **热门话题列表** - 按热度排序，包含：
+   - 话题名称（带序号emoji）
+   - 热度（🔥数量表示）
+   - 参与者（最多5人）
+   - 讨论时间段
+   - 讨论过程总结
+   - 话题评价
+3. **活跃用户统计** - 前五名发言者数据
+
+### 配置说明
+
+在 `plugins/group_chat_summary/config.json` 中配置：
+
+```json
+{
+  "open_ai_api_base": "https://api.deepseek.com/v1",
+  "open_ai_api_key": "your-api-key",
+  "open_ai_model": "deepseek-chat",
+  "max_record_quantity": 1000,
+  "black_chat_name": ["屏蔽群1", "屏蔽群2"]
+}
+```
+
+### 数据存储
+
+- 使用SQLite数据库存储聊天记录
+- 数据库文件：`plugins/group_chat_summary/chat_records.db`
+- 自动清理机制：只保留每个群的最新消息
+
+> 感谢开源项目 [group_chat_summary](https://github.com/wclzq/group_chat_summary) 提供的强大功能
+
 # 更新日志
+- 2025/01/06 集成群聊总结插件(group_chat_summary)，支持自动记录群聊消息并生成AI驱动的结构化聊天报告
 - 2025/01/06 修复在微信群中微信账号无法识别命令的bug，感谢[**sofs2005**](https://github.com/sofs2005)贡献的代码
 - 2025/01/04 修复gewechat自动回复公众号等官方账号消息的bug，感谢[**benxiaohai86**](https://github.com/benxiaohai86)提供的过滤思路
 - 2024/12/29 支持gewechat发送语音条消息
