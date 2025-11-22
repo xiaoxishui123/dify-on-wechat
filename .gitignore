@@ -38,6 +38,7 @@ plugins/banwords/lib/__pycache__
 !plugins/group_at_autoreply
 !plugins/group_chat_summary
 !plugins/group_chat_summary/**/
+plugins/group_chat_summary/*.db
 client_config.json
 
 # auto coder
