@@ -33,10 +33,7 @@ class DifyBot(Bot):
         :param query: 消息内容
         :return: 是否跳过
         """
-        logger.debug(f"[dify] _should_skip_message checking: '{query[:100]}...'")
-        
         if not query:
-            logger.debug("[dify] Skip message: empty query")
             return True
             
         # 检查是否包含 @所有人 或 @all
@@ -54,7 +51,6 @@ class DifyBot(Bot):
             logger.info("[dify] Not skipping welcome message from plugin")
             return False
             
-        logger.debug("[dify] Not skipping message")
         return False
 
     def _clean_query(self, query: str, context: dict) -> str:
@@ -239,12 +235,13 @@ class DifyBot(Bot):
     def _get_dify_conf(self, context: Context, key, default=None):
         return context.get(key, conf().get(key, default))
 
-    def _reply(self, query: str, session: DifySession, context: Context):
+    def _reply(self, query: str, session: DifySession, context: Context, retry_count: int = 0):
         """
         处理消息并获取回复
         :param query: 用户输入的消息
         :param session: 会话对象
         :param context: 上下文对象
+        :param retry_count: 重试次数，默认为0
         :return: (Reply, error_message)
         """
         try:
@@ -267,6 +264,12 @@ class DifyBot(Bot):
 
             # 检查回复
             if err:
+                # 如果是会话不存在错误且还有重试机会，则清空会话ID并重试
+                if err == "Conversation Not Exists" and retry_count < 1:
+                    logger.warning("[DIFY] Conversation Not Exists, clearing conversation_id and retrying...")
+                    session.set_conversation_id('') # 清空会话ID
+                    return self._reply(query, session, context, retry_count + 1)
+                
                 logger.error(f"[DIFY] Error getting reply: {err}")
                 return None, err
             elif not reply:
@@ -699,6 +702,10 @@ class DifyBot(Bot):
             elif status_code == 401 and error_data.get("code").lower() == "unauthorized":
                 friendly_error_msg = "[DIFY] apikey无效, 请检查config.json中的dify_api_key或dify_api_base是否正确"
                 print_red(friendly_error_msg)
+            elif status_code == 404 and error_data.get("code").lower() == "not_found" and "conversation not exists" in error_data.get("message", "").lower():
+                # Dify会话不存在错误，指示需要清理会话ID并重试
+                friendly_error_msg = "Conversation Not Exists"
+                logger.warning(f"[DIFY] Dify conversation not exists, need to clear conversation_id and retry. Response: {response_text}")
             return friendly_error_msg
         except Exception as e:
             logger.error(f"Failed to handle error response, response_text: {response_text} error: {e}")
