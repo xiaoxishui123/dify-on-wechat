@@ -1,0 +1,57 @@
+{
+    "channel_type": "gewechat",
+    "coze_api_base": "https://api.coze.cn/open_api/v2",
+    "coze_api_key": "pat_JnIOQ6ineJlmp2Ps81YwwwdxViKXSQkMsWeNzd8q31WFoP9jBh7AR1JqKepoD9W8",
+    "coze_bot_id": "7449197474322939931",
+    "debug": true,
+    "dify_api_base": "https://api.dify.ai/v1",
+    "dify_api_key": "app-y3M53i0G4gQ718SjwxgURwQR",
+    "dify_app_type": "agent",
+    "gewechat_app_id": "wx_zMVa1ghfobSGg7k4XZ8yn",
+    "gewechat_base_url": "https://www.geweapi.com/gewe/v2/api",
+    "gewechat_callback_url": "http://47.117.188.194:9919/v2/api/callback/collect",
+    "gewechat_download_url": "http://218.78.116.24:10884/gewe/download",
+    "gewechat_token": "f94fa989-c521-46a0-bdb0-567222f92b1f",
+    "group_at_off": false,
+    "group_chat_in_one_session": [],
+    "group_chat_keyword": [],
+    "group_chat_prefix": [
+        "@机器人"
+    ],
+    "group_chat_reply_prefix": "",
+    "group_chat_reply_suffix": "",
+    "group_name_keyword_white_list": [
+        "2025",
+        "咨询",
+        "合唱",
+        "吉他",
+        "预科",
+        "手机",
+        "听众"
+    ],
+    "group_name_white_list": [
+         "点石创校大群"
+    ],
+    "nick_name_black_list": [
+        "刘玉153",
+        "周三走秀孙颖丹",
+        "袁诗慧钢琴伴奏",
+        "亦心",
+        "陈馨怡",
+        "冷暖自知",
+        "走秀凤栖桐袁莉萍老师",
+        "关山韵刘玉校长"
+    ],
+    "group_speech_recognition": true,
+    "image_recognition": true,
+    "model": "dify",
+    "no_need_at": false,
+    "single_chat_prefix": [
+        "@机器人"
+    ],
+    "single_chat_reply_prefix": "",
+    "speech_recognition": false,
+    "text_to_voice": "dify",
+    "voice_reply_voice": false,
+    "voice_to_text": "dify"
+}
