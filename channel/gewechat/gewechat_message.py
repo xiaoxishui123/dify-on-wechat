@@ -519,9 +519,14 @@ class GeWeChatMessage(ChatMessage):
                 self.content = content
                 return
                 
-            if any(note in content for note in notes_join_group):
+            # 排除入群申请消息（"想邀请...加入群聊"），只处理真正的入群/退群消息
+            is_join_request = "想邀请" in content and "加入群聊" in content
+            if any(note in content for note in notes_join_group) and not is_join_request:
                 try:
                     xml_content = content.split(':\n', 1)[1] if ':\n' in content else content
+                    # 诊断日志：记录原始XML内容，用于分析解析失败的原因
+                    logger.info(f"[gewechat] 诊断日志 - 原始系统消息内容: {content}")
+                    logger.info(f"[gewechat] 诊断日志 - 提取的XML内容: {xml_content}")
                     root = ET.fromstring(xml_content)
                     
                     sysmsgtemplate = root.find('.//sysmsgtemplate')
@@ -621,9 +626,13 @@ class GeWeChatMessage(ChatMessage):
                 except ET.ParseError as e:
                     logger.error(f"[gewechat] Failed to parse group system message XML: {e}")
                     self.content = content
+                    # XML解析失败时，回退到文本匹配逻辑
+                    self._fallback_parse_system_message(content)
                 except Exception as e:
                     logger.error(f"[gewechat] Unexpected error parsing group system message: {e}")
                     self.content = content
+                    # 异常时也回退到文本匹配逻辑
+                    self._fallback_parse_system_message(content)
         elif self.msg_data['MsgType'] == 47:
             self.ctype = ContextType.EMOJI
             self.content = self.msg_data.get('Content', {}).get('string', '')
@@ -778,6 +787,85 @@ class GeWeChatMessage(ChatMessage):
     def prepare(self):
         if self._prepare_fn:
             self._prepare_fn()
+
+    def _fallback_parse_system_message(self, content: str):
+        """XML解析失败时的回退解析方法，使用文本匹配识别消息类型
+        
+        Args:
+            content: 消息内容
+        """
+        logger.info(f"[gewechat] 回退解析系统消息: {content}")
+        
+        # 初始化必要的属性，避免后续处理时出现 AttributeError
+        self.invite_nickname = ""
+        self.actual_user_nickname = "新成员"
+        self.group_name = self.from_user_id
+        
+        # 判断是否是入群消息
+        # 注意：需要排除入群申请消息（"想邀请...加入群聊"），只有真正入群成功才触发欢迎词
+        is_join_request = "想邀请" in content and "加入群聊" in content  # 入群申请，不是入群成功
+        is_join_success = ("加入了群聊" in content or  # 标准入群成功格式
+                          ("二维码" in content and "加入" in content) or  # 扫码入群
+                          ("扫码" in content and "加入" in content))  # 扫码入群
+        
+        if is_join_success and not is_join_request:
+            self.ctype = ContextType.JOIN_GROUP
+            logger.info(f"[gewechat] 回退解析识别为 JOIN_GROUP: {content}")
+            
+            # 尝试提取被邀请人昵称 - 支持多种格式
+            invited_names = []
+            try:
+                # 格式1: "xxx"加入了群聊
+                invited_names = re.findall(r'"([^\"]+)"加入了群聊', content)
+                if not invited_names:
+                    # 格式2: 邀请"xxx"加入了群聊
+                    m = re.search(r'邀请\"([^\"]+)\"加入了群聊', content)
+                    if m:
+                        invited_names = [m.group(1)]
+                if not invited_names:
+                    # 格式3: 从CDATA中提取 - 你邀请"xxx"加入了群聊
+                    cdata_match = re.search(r'你邀请\"([^\"]+)\"加入了群聊', content)
+                    if cdata_match:
+                        invited_names = [cdata_match.group(1)]
+            except Exception as e:
+                logger.warning(f"[gewechat] 回退解析提取昵称失败: {e}")
+            
+            if invited_names:
+                # 去重
+                unique_names = list(dict.fromkeys(invited_names))
+                self.actual_user_nickname = '、'.join(unique_names)
+                logger.info(f"[gewechat] 回退解析提取昵称: {self.actual_user_nickname}")
+            
+            # 提取邀请人昵称 - 支持多种格式
+            try:
+                # 格式1: "xxx"邀请
+                inviter_match = re.search(r'\"([^\"]+)\"邀请', content)
+                if inviter_match:
+                    self.invite_nickname = inviter_match.group(1)
+                elif "你邀请" in content:
+                    # 格式2: 你邀请 - 说明是机器人自己邀请的
+                    self.invite_nickname = "你"
+            except Exception as e:
+                logger.warning(f"[gewechat] 回退解析提取邀请人失败: {e}")
+            
+            # 获取群名
+            try:
+                brief_info_response = self.client.get_brief_info(self.app_id, [self.from_user_id])
+                if brief_info_response.get('ret') == 200 and brief_info_response.get('data'):
+                    brief_info = brief_info_response['data'][0]
+                    self.group_name = brief_info.get('nickName', self.from_user_id)
+            except Exception as e:
+                logger.warning(f"[gewechat] 回退解析获取群名失败: {e}")
+            
+            logger.info(f"[gewechat] 回退解析完成 - 昵称: {self.actual_user_nickname}, 邀请人: {self.invite_nickname}, 群名: {self.group_name}")
+                
+        elif "移出了群聊" in content:
+            self.ctype = ContextType.EXIT_GROUP
+            logger.info(f"[gewechat] 回退解析识别为 EXIT_GROUP: {content}")
+        else:
+            # 未识别的消息类型，设置为TEXT避免ctype为None
+            self.ctype = ContextType.TEXT
+            logger.warning(f"[gewechat] 回退解析未识别消息类型，设置为TEXT: {content}")
 
     def _is_non_user_message(self, msg_source: str, from_user_id: str) -> bool:
         """检查消息是否来自非用户账号（如公众号、腾讯游戏、微信团队等）

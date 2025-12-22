@@ -59,6 +59,12 @@ class ChatChannel(Channel):
                 context["group_name"] = group_name
                 logger.info(f"[chat_channel] Group message: group_name='{group_name}', group_id='{group_id}'")
 
+                # 【诊断日志】记录群消息的关键变量，用于排查入群欢迎词不触发的问题
+                logger.info(f"[chat_channel] 诊断日志 - ctype={ctype}, group_id={group_id}")
+                logger.info(f"[chat_channel] 诊断日志 - other_user_nickname={cmsg.other_user_nickname}")
+                logger.info(f"[chat_channel] 诊断日志 - kwargs.group_name={kwargs.get('group_name')}")
+                logger.info(f"[chat_channel] 诊断日志 - cmsg.group_name={getattr(cmsg, 'group_name', 'N/A')}")
+
                 group_name_white_list = config.get("group_name_white_list", [])
                 group_name_keyword_white_list = config.get("group_name_keyword_white_list", [])
                 logger.info(f"[chat_channel] Whitelist check: group_name_white_list={group_name_white_list}, group_name_keyword_white_list={group_name_keyword_white_list}")
@@ -82,8 +88,9 @@ class ChatChannel(Channel):
                     ):
                         session_id = group_id
                         context["is_shared_session_group"] = True  # 如果是共享会话群，设置为True
+                    logger.info(f"[chat_channel] 诊断日志 - 白名单检查通过, group_name={group_name}")
                 else:
-                    logger.debug(f"No need reply, groupName not in whitelist, group_name={group_name}")
+                    logger.info(f"[chat_channel] 诊断日志 - 白名单检查失败! group_name={group_name}, 消息被过滤")
                     return None
                 context["session_id"] = session_id
                 context["receiver"] = group_id
