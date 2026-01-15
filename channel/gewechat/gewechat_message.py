@@ -454,12 +454,16 @@ class GeWeChatMessage(ChatMessage):
                                 else:
                                     logger.warning(f"[gewechat] No ':' found in group quote message content")
                                 
-                                # 检查引用消息是否@机器人 - 检查title和quoted内容
-                                if self.to_user_nickname and (self.to_user_nickname in title or self.to_user_nickname in quoted_content):
+                                # 检查引用消息是否@机器人 - 检查title、quoted内容、或者被引用的消息是否来自机器人
+                                if self.to_user_nickname and (
+                                    self.to_user_nickname in title or 
+                                    self.to_user_nickname in quoted_content or 
+                                    displayname == self.to_user_nickname  # 引用了机器人的消息
+                                ):
                                     self.is_at = True
-                                    logger.info(f"[gewechat] Quote message contains bot nickname '{self.to_user_nickname}', set is_at=True")
+                                    logger.info(f"[gewechat] Quote message triggers reply - displayname: '{displayname}', bot_nickname: '{self.to_user_nickname}', set is_at=True")
                                 else:
-                                    logger.info(f"[gewechat] Quote message does not contain bot nickname '{self.to_user_nickname}', is_at=False")
+                                    logger.info(f"[gewechat] Quote message does not trigger reply - displayname: '{displayname}', bot_nickname: '{self.to_user_nickname}', is_at=False")
                             else:
                                 logger.info(f"[gewechat] Private quote message - using from_user_id: {self.from_user_id}")
                                 self.actual_user_id = self.from_user_id
@@ -704,6 +708,12 @@ class GeWeChatMessage(ChatMessage):
                 logger.error(f"[gewechat] Unexpected error parsing 10000 system message: {e}")
                 self.content = content
                 self.ctype = ContextType.TEXT
+        elif self.msg_data['MsgType'] == 10000 and not self.is_group:  # 私聊系统消息（如好友添加成功、拍一拍等）
+            content = self.msg_data.get('Content', {}).get('string', '')
+            logger.info(f"[gewechat] detected private system message(10000): {content}")
+            # 私聊系统消息通常不需要回复，直接忽略
+            self.ctype = None
+            self.content = content
         else:
             raise NotImplementedError(f"Unsupported message type: Type:{self.msg_data['MsgType']}")
 

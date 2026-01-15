@@ -2,7 +2,7 @@
   "jina_reader_base": "https://r.jina.ai",
   "open_ai_api_base": "https://api.siliconflow.cn/v1",
   "open_ai_api_key": "sk-whiqhcrowdhgoecvpqegixemvikemtwbmsaykigwvfmkxluw",
-  "open_ai_model": "deepseek-ai/DeepSeek-V3",
+  "open_ai_model": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
   "model": "DeepSeek-ai",
   "max_words": 8000,
   "white_url_list": [],

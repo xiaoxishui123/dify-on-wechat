@@ -146,7 +146,8 @@ class DifyBot(Bot):
                     has_prefix = True
                 
                 # 如果配置了前缀，则只响应包含配置前缀的消息
-                if group_chat_prefix and not has_prefix and not context.get("is_plugin_welcome"):
+                # 但如果 is_at=True（包括引用机器人消息的情况），则跳过前缀检查
+                if group_chat_prefix and not has_prefix and not is_at and not context.get("is_plugin_welcome"):
                     logger.info("[dify] Group chat requires configured prefix but message doesn't have it, skip")
                     return Reply(ReplyType.TEXT, "")
 

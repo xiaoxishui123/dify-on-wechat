@@ -73,9 +73,16 @@ class JinaSum(Plugin):
     def on_handle_context(self, e_context: EventContext, retry_count: int = 0):
         try:
             context = e_context["context"]
-            content = context.content
+            # 首先检查事件类型，只处理分享链接和文本类型
             if context.type != ContextType.SHARING and context.type != ContextType.TEXT:
+                logger.debug(f"[JinaSum] 跳过非链接/文本类型事件: {context.type}")
                 return
+            
+            content = context.content
+            if not content:
+                logger.debug("[JinaSum] 内容为空，跳过处理")
+                return
+                
             if not self._check_url(content):
                 logger.debug(f"[JinaSum] {content} is not a valid url, skip")
                 return
@@ -119,10 +126,53 @@ class JinaSum(Plugin):
             openai_chat_url = self._get_openai_chat_url()
             openai_headers = self._get_openai_headers()
             openai_payload = self._get_openai_payload(target_url_content)
-            logger.debug(f"[JinaSum] openai_chat_url: {openai_chat_url}, openai_headers: {openai_headers}, openai_payload: {openai_payload}")
+            logger.info(f"[JinaSum] 准备调用API - URL: {openai_chat_url}, 模型: {self.open_ai_model}, 内容长度: {len(target_url_content)}")
+            logger.debug(f"[JinaSum] API请求详情 - headers: {openai_headers}, payload keys: {list(openai_payload.keys())}")
             
             # 发送请求获取摘要
             response = requests.post(openai_chat_url, headers=openai_headers, json=openai_payload, timeout=60)
+            
+            # 检查响应状态
+            if response.status_code == 403:
+                error_msg = "API密钥无效或没有权限，请检查配置"
+                logger.error(f"[JinaSum] {error_msg}, status_code={response.status_code}")
+                try:
+                    error_data = response.json()
+                    logger.error(f"[JinaSum] API完整响应: {error_data}")
+                    
+                    # SiliconFlow API 错误格式：{"code":30001,"message":"...","data":null}
+                    if 'message' in error_data:
+                        error_detail = error_data.get('message', '未知错误')
+                        error_code = error_data.get('code', '未知代码')
+                        logger.error(f"[JinaSum] API错误详情 - 代码: {error_code}, 消息: {error_detail}")
+                        
+                        # 检查是否是余额不足
+                        if 'insufficient' in error_detail.lower() or 'balance' in error_detail.lower() or error_code == 30001:
+                            error_msg = "账户余额不足，请充值后重试"
+                        else:
+                            error_msg = f"API错误: {error_detail}"
+                    # OpenAI格式的错误：{"error": {"message": "...", "type": "...", "code": "..."}}
+                    elif 'error' in error_data:
+                        error_obj = error_data['error']
+                        error_detail = error_obj.get('message', '未知错误')
+                        error_type = error_obj.get('type', '未知类型')
+                        error_code = error_obj.get('code', '未知代码')
+                        logger.error(f"[JinaSum] API错误详情 - 类型: {error_type}, 代码: {error_code}, 消息: {error_detail}")
+                        error_msg = f"API密钥错误: {error_detail}"
+                    else:
+                        logger.error(f"[JinaSum] API错误响应格式: {error_data}")
+                except Exception as parse_error:
+                    logger.error(f"[JinaSum] 解析错误响应失败: {parse_error}, 原始响应: {response.text[:500]}")
+                raise Exception(error_msg)
+            elif response.status_code == 401:
+                error_msg = "API密钥认证失败，请检查密钥是否正确"
+                logger.error(f"[JinaSum] {error_msg}, status_code={response.status_code}")
+                raise Exception(error_msg)
+            elif response.status_code == 429:
+                error_msg = "API请求频率过高，请稍后再试"
+                logger.error(f"[JinaSum] {error_msg}, status_code={response.status_code}")
+                raise Exception(error_msg)
+            
             response.raise_for_status()
             result = response.json()['choices'][0]['message']['content']
             
@@ -132,13 +182,50 @@ class JinaSum(Plugin):
             e_context.action = EventAction.BREAK_PASS
 
         except Exception as e:
+            # 如果事件类型不是SHARING或TEXT，不应该返回错误消息
+            try:
+                context = e_context["context"]
+                if context.type not in [ContextType.SHARING, ContextType.TEXT]:
+                    logger.debug(f"[JinaSum] 异常发生在非链接/文本类型事件中，跳过错误处理: {context.type}")
+                    return
+            except (KeyError, AttributeError):
+                # 如果无法获取context，直接返回，不处理错误
+                logger.debug("[JinaSum] 无法获取context，跳过错误处理")
+                return
+                
+            # 对于认证错误（401/403）和余额不足，不进行重试
+            if "API密钥" in str(e) or "认证失败" in str(e) or "没有权限" in str(e) or "余额不足" in str(e) or "insufficient" in str(e).lower():
+                logger.error(f"[JinaSum] API错误，不进行重试: {str(e)}")
+                error_message = str(e)
+                if "余额不足" in error_message or "insufficient" in error_message.lower():
+                    error_message = "💰 账户余额不足，请前往SiliconFlow控制台充值后重试"
+                else:
+                    error_message = f"❌ API配置错误：{error_message}，请检查plugins/jina_sum/config.json中的API密钥配置"
+                reply = Reply(ReplyType.ERROR, error_message)
+                e_context["reply"] = reply
+                e_context.action = EventAction.BREAK_PASS
+                return
+            
             if retry_count < 3:
                 logger.warning(f"[JinaSum] {str(e)}, retry {retry_count + 1}")
                 self.on_handle_context(e_context, retry_count + 1)
                 return
 
             logger.exception(f"[JinaSum] {str(e)}")
-            reply = Reply(ReplyType.ERROR, "我暂时无法总结链接，请稍后再试")
+            # 根据错误类型提供更友好的错误消息
+            error_message = "我暂时无法总结链接，请稍后再试"
+            if "余额不足" in str(e) or "insufficient" in str(e).lower():
+                error_message = "💰 账户余额不足，请前往SiliconFlow控制台充值后重试"
+            elif "403" in str(e) or "Forbidden" in str(e):
+                error_message = "❌ API访问被拒绝，请检查API密钥是否有权限或账户余额是否充足"
+            elif "401" in str(e) or "Unauthorized" in str(e):
+                error_message = "❌ API密钥认证失败，请检查plugins/jina_sum/config.json中的API密钥是否正确"
+            elif "429" in str(e) or "rate limit" in str(e).lower():
+                error_message = "⏰ API请求频率过高，请稍后再试"
+            elif "timeout" in str(e).lower():
+                error_message = "⏱️ 请求超时，请稍后再试"
+            
+            reply = Reply(ReplyType.ERROR, error_message)
             e_context["reply"] = reply
             e_context.action = EventAction.BREAK_PASS
 
@@ -717,7 +804,7 @@ class JinaSum(Plugin):
     def _get_openai_headers(self):
         return {
             'Authorization': f"Bearer {self.open_ai_api_key}",
-            'Host': urlparse(self.open_ai_api_base).netloc
+            'Content-Type': 'application/json'
         }
 
     def _get_openai_payload(self, target_url_content):
