@@ -61,3 +61,13 @@ wechat_robot.log
 # 插件本地配置（可能含密钥），仅提交 .template
 plugins/*/config.json
 
+# 纳入版本管理的插件白名单（需写在 plugins/**/ 之后才生效）
+!plugins/difytimetask
+!plugins/difytimetask/**/
+
+# difytimetask 插件运行时数据（任务表由插件首次运行时自动创建）
+plugins/difytimetask/__pycache__/
+plugins/difytimetask/taskFile/
+plugins/difytimetask/*.bak*
+
+
