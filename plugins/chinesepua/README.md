@@ -1,123 +1,76 @@
-# ChinesePUA 插件
+# ChinesePUA 插件（汉语新解）
 
-这是一个基于AI的中文解释和吐槽生成插件，可以对用户提供的关键词进行有趣的解释或吐槽。
+为中文词语生成讽刺风格的「汉语新解」卡片。
 
-## 功能
+> 本插件基于原作者仓库 [BenedictKing/chinesepua](https://github.com/BenedictKing/chinesepua) 整理改写，
+> 已**移除 Claude 依赖**，全部能力统一走一个 OpenAI 兼容接口。
 
-- 解释命令：对中文词语进行有趣且夸张的解释
-- 吐槽命令：以关键词为主题，生成幽默的吐槽内容
-- 圆角图片：自动为生成的图片添加圆角效果，提升视觉效果
+## 功能与触发词
 
-## 使用方法
+| 触发词 | 功能 |
+| --- | --- |
+| `解释` / `吐槽` / `PUA` / `槽点` / `新解` | 汉语新解（主功能） |
+| `解字` / `字典` / `字源` | 说文解字 |
+| `设计` / `名片` | 社交名片 |
+| `翻译` | 翻译 |
+| `论证` / `分析` | 论证分析 |
+| `思考` / `撕考` / `思考者` / `撕考者` | 思考者 |
+| `沉思` / `琢磨` / `深度思考` | 沉思者 |
+| `概念` / `概念解释` | 概念解释 |
+| `哲学` / `哲学家` | 哲学思考 |
+| `互联网` / `web2` | 互联网黑话 |
+| `知识` / `知识卡` | 知识卡片 |
+| `单词` / `单词卡` | 单词卡片 |
 
-1. 解释功能：发送 `解释 [关键词]`，如 `解释 程序员`
-2. 吐槽功能：发送 `吐槽 [关键词]`，如 `吐槽 加班`
-
-## 配置说明
-
-1. 复制 `config.json.template` 为 `config.json`
-2. 编辑 `config.json` 文件，填入必要的配置信息：
-
-```json
-{
-    "enabled": true,
-    "api_key": "YOUR_DIFY_API_KEY_HERE",
-    "api_base_url": "https://api.dify.ai",
-    "template_file": "plugins/chinesepua/templates/prompt_template.txt",
-    "log_level": "INFO"
-}
-```
-
-### 配置项说明
-
-- `enabled`: 是否启用插件，设置为 `true` 或 `false`
-- `api_key`: Dify API 密钥，必填
-- `api_base_url`: Dify API 基础 URL，默认为 "https://api.dify.ai"
-- `template_file`: 提示词模板文件路径
-- `log_level`: 日志级别，可设置为 "DEBUG", "INFO", "WARNING", "ERROR"
-- `rounded_corner_radius`: 图片圆角半径，默认为 20 像素
-
-## 关键词要求
-
-- 关键词必须包含中文字符
-- 关键词长度在1-10个字符之间
-
-## 错误排查
-
-如果插件无法正常工作，请检查以下几点：
-
-1. 确认 `config.json` 中的 API 密钥已正确设置
-2. 检查日志输出中是否有错误信息
-3. 确认模板文件路径是否正确
-
-## 模板定制
-
-可以通过修改 `templates/prompt_template.txt` 文件来自定义生成内容的风格和特点。模板中可使用以下变量：
-
-- `{{command_type}}`: 命令类型，值为 "explain" 或 "complain"
-- `{{keyword}}`: 用户输入的关键词
+用法示例：`解释 金融杠杆`、`吐槽 内卷`、`解字 仁`。
+关键词需包含中文字符且长度不超过 10。
 
 ## 安装
 
-1. 将插件文件夹复制到 `plugins` 目录下
-2. 安装playwright `pip install playwright`
-3. 安装chromium `playwright install chromium`
-4. 配置相关的key和base
-4. 在 `config.json` 中启用插件
-5. 重启 chatgpt-on-wechat
+1. 将插件目录放入项目的 `plugins/` 下
+2. `pip install -r requirements.txt`
+3. `playwright install chromium`
+4. 填写 `config.json`
+5. 重启程序
 
 ## 配置
 
-可以在 `config.json` 中进行以下配置:
+配置读取顺序与 `JinaSum` 等插件一致：
 
-- `api_key`: API密钥
-- `api_base`: API基础URL, 例如 `https://api.openai.com/v1`
-- `api_model`: 使用的API模型, 默认 `gpt-4o-mini`
-- `claude_key`: Claude API密钥（可选）
-- `claude_base`: Claude API基础URL（可选）
-- `claude_model`: 使用的Claude模型, 默认 `claude-3-5-sonnet-20240620`
-- `with_text`: 是否在卡片中显示解释文本, 默认 `false`
-- `max_tokens`: 生成的文本最大长度, 如果无法生成图片，可以适当增加这个值，例如4096
+1. **优先**：项目根目录下 `plugins/config.json` 中 `chinesepua` 段
+2. 回退：`plugins/chinesepua/config.json`
+3. 再回退：`plugins/chinesepua/config.json.template`
 
-## 圆角图片功能
-
-插件会自动为生成的图片添加圆角效果，让图片看起来更加美观和现代化。您可以通过配置文件调整圆角的大小：
+推荐直接写在 `plugins/config.json`（与其它插件的 API 配置放在一起）：
 
 ```json
-{
-    "rounded_corner_radius": 20
+"chinesepua": {
+    "open_ai_api_base": "https://api.siliconflow.cn/v1",
+    "open_ai_api_key": "sk-xxxxxxxx",
+    "open_ai_model": "deepseek-ai/DeepSeek-V3",
+    "max_tokens": 4096,
+    "with_text": false
 }
 ```
 
-- `rounded_corner_radius`: 圆角半径值（像素），数值越大圆角越明显
-- 默认值为 20 像素
-- 设置为 0 可以禁用圆角效果
-- 推荐范围：10-50 像素
+| 字段 | 说明 |
+| --- | --- |
+| `open_ai_api_base` | API 地址，必须包含版本路径（如 `https://api.openai.com/v1`、`https://api.ppinfra.com/v3/openai`），插件直接拼接 `/chat/completions`，**不会**自动补 `/v1` |
+| `open_ai_api_key` | API 密钥 |
+| `open_ai_model` | 模型名，默认 `gpt-4o-mini` |
+| `max_tokens` | 生成上限；若卡片生成失败可调大（如 `4096`） |
+| `with_text` | `true` 时同时返回文本解释；`false`（默认）只返回图片卡片 |
 
-## 注意事项
+> 兼容旧键名：`api_base` / `api_key` / `api_model` 仍可识别，但建议使用 `open_ai_*`。
 
-- 本插件仅供娱乐使用,生成的内容可能具有讽刺或夸张性质
-- 请遵守相关法律法规,不要生成违法或不当内容
-- 本插件依赖于 `chatgpt-on-wechat` 项目，请确保你已经安装了该项目
+## 说明
 
-## 贡献
+- 卡片由模型直接输出 HTML（或 SVG），插件用 Playwright 无头浏览器截图后发送图片。
+- 需要可用的 OpenAI 兼容接口（OpenAI / 硅基流动 / DeepSeek 等）。
+- 生成内容仅供娱乐，可能带有讽刺或夸张色彩，请遵守相关法律法规。
 
-欢迎提交 Issue 或 Pull Request 来帮助改进此插件!
+## 致谢
 
-## 许可证
+原作者 BenedictKing，以及提示词作者 云中江树、李继刚。
 
 MIT License
-
-## 更新日志
-
-### 0.5版本
-- 新增更多Claude模型可用的提示词
-
-### 0.4版本
-- 新增"解字"、"字典"和"字源"触发词功能
-- 增加了对Claude API的支持，某些功能可以选择使用Claude模型
-
-### 0.3版本
-- 新增"设计"和"名片"触发词功能
-- 支持生成精美的社交名片，包含姓名、职位、公司和联系方式等个人信息
-- 优化图片生成算法，提高名片设计的美观度和专业性

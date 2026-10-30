@@ -173,8 +173,39 @@ def parse_markdown_text(text: str) -> List[Dict]:
         result.append({"type": "text", "content": current_text})
     return result
 
+def _format_plain_link(match) -> str:
+    """纯文本渠道中链接无法渲染，保留文字与 URL，保证在微信中可点击"""
+    label = re.sub(r'<[^>]+>', '', match.group(1)).strip()
+    url = match.group(2).strip()
+    if not label or label == url:
+        return url
+    return f'{label} {url}'
+
+
 def remove_markdown_symbol(text: str):
-    # 移除markdown格式，目前先移除**
+    """
+    移除 markdown 格式，转换为纯文本渠道（个人微信等）可正常展示的排版：
+    - 链接保留 URL，保证在微信中可点击
+    - 标题/列表/分割线转换为排版符号，保留层级
+    """
     if not text:
         return text
-    return re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+    # 图片与链接：纯文本渠道无法展示图片，统一保留文字与 URL
+    text = re.sub(r'!\[(.*?)\]\((.*?)\)', _format_plain_link, text)
+    text = re.sub(r'\[(.*?)\]\((.*?)\)', _format_plain_link, text)
+    # 加粗/斜体/删除线/行内代码
+    text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+    text = re.sub(r'__(.*?)__', r'\1', text)
+    text = re.sub(r'~~(.*?)~~', r'\1', text)
+    text = re.sub(r'`([^`]*)`', r'\1', text)
+    # 标题、引用、列表、分割线（按行处理）
+    lines = []
+    for line in text.split('\n'):
+        line = re.sub(r'^\s{0,3}#{1,6}\s*', '▎', line)
+        line = re.sub(r'^\s{0,3}>\s?', '', line)
+        line = re.sub(r'^(\s*)[-*+]\s+', r'\1• ', line)
+        if re.fullmatch(r'\s{0,3}(-{3,}|\*{3,}|_{3,})\s*', line):
+            line = '──────────'
+        lines.append(line)
+    # 移除落单的加粗标记（模型漏写或流式分片导致首尾不成对）
+    return re.sub(r'\*{2,}', '', '\n'.join(lines))

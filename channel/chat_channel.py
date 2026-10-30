@@ -59,6 +59,16 @@ class ChatChannel(Channel):
                 context["group_name"] = group_name
                 logger.info(f"[chat_channel] Group message: group_name='{group_name}', group_id='{group_id}'")
 
+                # 记录群名与群ID到本地索引：通讯录仅含"已保存到通讯录"的群，
+                # 未保存的群必须借消息回调入库，之后才能按群名检索（官方文档推荐方案）
+                if group_name and group_id:
+                    try:
+                        from common.group_index import record_group
+
+                        record_group(group_name, group_id)
+                    except Exception as e:
+                        logger.debug(f"[chat_channel] 记录群名索引失败: {e}")
+
                 # 【诊断日志】记录群消息的关键变量，用于排查入群欢迎词不触发的问题
                 logger.info(f"[chat_channel] 诊断日志 - ctype={ctype}, group_id={group_id}")
                 logger.info(f"[chat_channel] 诊断日志 - other_user_nickname={cmsg.other_user_nickname}")
@@ -281,6 +291,19 @@ class ChatChannel(Channel):
                 pass
             elif context.type == ContextType.FUNCTION or context.type == ContextType.FILE:  # 文件消息及函数调用等，当前无默认逻辑
                 pass
+            elif context.type in (ContextType.JOIN_GROUP, ContextType.EXIT_GROUP, ContextType.PATPAT):
+                # 入群/退群/拍一拍等事件消息：无默认回复逻辑，
+                # 上面 emit 的 ON_HANDLE_CONTEXT 事件已交给插件（如 Hello）处理
+                logger.debug("[chat_channel] event message without default logic: type={}".format(context.type))
+                pass
+            elif context.type == ContextType.EMOJI:
+                # 表情/动画表情消息：不触发大模型，避免无意义调用
+                logger.debug("[chat_channel] ignore emoji message")
+                pass
+            elif context.type is None:
+                # 未识别/不支持的消息类型，静默忽略
+                logger.debug("[chat_channel] ignore message with None context type")
+                return
             else:
                 logger.warning("[chat_channel] unknown context type: {}".format(context.type))
                 return

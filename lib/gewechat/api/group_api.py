@@ -121,7 +121,7 @@ class GroupApi:
         """同意进群"""
         param = {
             "appId": app_id,
-            "chatroomName": url
+            "url": url
         }
         return post_json(self.base_url, "/group/agreeJoinRoom", self.token, param)
 

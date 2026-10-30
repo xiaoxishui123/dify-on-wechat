@@ -322,12 +322,16 @@ class GeWeChatMessage(ChatMessage):
         # 获取机器人的昵称
         bot_wxid = self.msg.get('Wxid')
         if bot_wxid:
-            brief_info_response = self.client.get_brief_info(self.app_id, [bot_wxid])
+            try:
+                brief_info_response = self.client.get_brief_info(self.app_id, [bot_wxid])
+            except Exception as e:
+                logger.warning(f"[gewechat] get_brief_info for bot failed, fallback to wxid: {e}")
+                brief_info_response = {}
             if brief_info_response.get('ret') == 200 and brief_info_response.get('data'):
                 brief_info = brief_info_response['data'][0]
                 self.to_user_nickname = brief_info.get('nickName', bot_wxid)
                 logger.debug(f"[gewechat] Bot nickname: {self.to_user_nickname}")
-            
+
         self.create_time = self.msg_data.get('CreateTime', 0)
         if not self.msg_data:
             logger.warning(f"[gewechat] No message data available")
@@ -364,21 +368,9 @@ class GeWeChatMessage(ChatMessage):
             
             # 检查是否是群聊消息
             if self.is_group:
-                # 解析MsgSource中的atuserlist
-                msg_source = self.msg_data.get('MsgSource', '')
-                try:
-                    root = ET.fromstring(msg_source)
-                    atuserlist = root.find('.//atuserlist')
-                    if atuserlist is not None and atuserlist.text:
-                        # 检查是否@了机器人
-                        bot_wxid = self.msg.get('Wxid')
-                        self.is_at = bot_wxid in atuserlist.text
-                        logger.info(f"[gewechat] atuserlist check: atuserlist='{atuserlist.text}', bot_wxid='{bot_wxid}', is_at={self.is_at}")
-                except ET.ParseError as e:
-                    logger.error(f"[gewechat] Failed to parse MsgSource XML: {e}")
-                except Exception as e:
-                    logger.error(f"[gewechat] Error checking @ status: {e}")
-                
+                # 解析MsgSource中的atuserlist，检查是否@了机器人
+                self.is_at = self._check_at_by_msg_source()
+
                 # 从消息中提取实际内容
                 if ':' in self.content:
                     self.content = self.content.split(':', 1)[1].strip()
@@ -454,16 +446,28 @@ class GeWeChatMessage(ChatMessage):
                                 else:
                                     logger.warning(f"[gewechat] No ':' found in group quote message content")
                                 
-                                # 检查引用消息是否@机器人 - 检查title、quoted内容、或者被引用的消息是否来自机器人
-                                if self.to_user_nickname and (
-                                    self.to_user_nickname in title or 
-                                    self.to_user_nickname in quoted_content or 
-                                    displayname == self.to_user_nickname  # 引用了机器人的消息
-                                ):
-                                    self.is_at = True
-                                    logger.info(f"[gewechat] Quote message triggers reply - displayname: '{displayname}', bot_nickname: '{self.to_user_nickname}', set is_at=True")
-                                else:
-                                    logger.info(f"[gewechat] Quote message does not trigger reply - displayname: '{displayname}', bot_nickname: '{self.to_user_nickname}', is_at=False")
+                                # 1) 通过 MsgSource 的 atuserlist 判断是否@了机器人
+                                if not self.is_at:
+                                    self.is_at = self._check_at_by_msg_source()
+                                
+                                # 2) 引用的原消息就是机器人自己发的消息，视为对机器人的回复
+                                if not self.is_at:
+                                    refer_fromusr = refermsg.find('fromusr').text if refermsg.find('fromusr') is not None else ''
+                                    bot_wxid = self.msg.get('Wxid')
+                                    if (bot_wxid and refer_fromusr == bot_wxid) or (
+                                            self.to_user_nickname and displayname == self.to_user_nickname):
+                                        self.is_at = True
+                                        logger.info(
+                                            f"[gewechat] Quote message replies to bot itself (fromusr={refer_fromusr}, "
+                                            f"displayname={displayname}), set is_at=True")
+                                
+                                # 3) 检查引用消息是否@机器人 - 检查title和quoted内容
+                                if not self.is_at:
+                                    if self.to_user_nickname and (self.to_user_nickname in title or self.to_user_nickname in quoted_content):
+                                        self.is_at = True
+                                        logger.info(f"[gewechat] Quote message contains bot nickname '{self.to_user_nickname}', set is_at=True")
+                                    else:
+                                        logger.info(f"[gewechat] Quote message does not contain bot nickname '{self.to_user_nickname}', is_at=False")
                             else:
                                 logger.info(f"[gewechat] Private quote message - using from_user_id: {self.from_user_id}")
                                 self.actual_user_id = self.from_user_id
@@ -500,7 +504,11 @@ class GeWeChatMessage(ChatMessage):
                 if ':' in content_string:
                     self.actual_user_id = content_string.split(':', 1)[0]
                     # 从群成员列表中获取实际发送者信息
-                    chatroom_member_list_response = self.client.get_brief_info(self.app_id, [self.actual_user_id])
+                    try:
+                        chatroom_member_list_response = self.client.get_brief_info(self.app_id, [self.actual_user_id])
+                    except Exception as e:
+                        logger.warning(f"[gewechat] get_brief_info for sender failed, fallback to wxid: {e}")
+                        chatroom_member_list_response = {}
                     if chatroom_member_list_response.get('ret') == 200 and chatroom_member_list_response.get('data'):
                         brief_info = chatroom_member_list_response['data'][0]
                         self.actual_user_nickname = brief_info.get('nickName', self.actual_user_id)
@@ -590,13 +598,24 @@ class GeWeChatMessage(ChatMessage):
                             target_username = next((u for u in usernames if u), None)
 
                     # 构造最终消息内容
+                    # 只有模板确实描述"邀请...加入了群聊"、且解析到真实昵称，才算入群事件。
+                    # tmpl_type_profilewithrevoke 同时承载"撤销/撤回"等系统提示，
+                    # 一律判成入群会在群里误发"@未知用户"的欢迎语。
+                    tmpl_text = (template.text if template is not None else None) or ""
+                    is_invite_tmpl = "邀请" in tmpl_text and "加入了群聊" in tmpl_text
+                    nickname_resolved = bool(target_nickname) and target_nickname != "未知用户"
+
                     if content_type == 'tmpl_type_profilewithrevoke':
-                        self.content = f'你邀请"{target_nickname}"加入了群聊'
-                        self.ctype = ContextType.JOIN_GROUP
+                        if is_invite_tmpl and nickname_resolved:
+                            self.content = f'你邀请"{target_nickname}"加入了群聊'
+                            self.ctype = ContextType.JOIN_GROUP
+                        else:
+                            logger.info(f"[gewechat] 非入群的系统消息(profilewithrevoke), 忽略: {tmpl_text}")
+                            self.content = tmpl_text
+                            self.ctype = None
                     elif content_type == 'tmpl_type_profile':
                         # 检查模板内容来区分是邀请还是移除
-                        template_text = template.text if template is not None else ""
-                        if "邀请" in template_text and "加入了群聊" in template_text:
+                        if is_invite_tmpl and nickname_resolved:
                             # 邀请用户加入群聊
                             self.content = f'"{target_nickname}"被邀请加入了群聊'
                             self.ctype = ContextType.JOIN_GROUP
@@ -673,13 +692,18 @@ class GeWeChatMessage(ChatMessage):
                     invited_names = []
                 if invited_names:
                     self.actual_user_nickname = '、'.join(invited_names)
-                # 判断加入/移出 - 扩展判断条件
-                if ("加入了群聊" in content or 
-                    "加入群聊" in content or 
-                    "二维码" in content or 
-                    "扫码" in content or
-                    "scan" in content.lower() or
-                    "join" in content.lower()):
+                # 判断加入/移出
+                # 主判定必须是明确的入群句式；"二维码/扫码"只是补充特征，
+                # 且需排除"已停用/关闭二维码进群"这类设置变更提示，否则会误发欢迎语
+                qr_disabled = any(word in content for word in ("停用", "关闭", "取消", "已失效", "不再"))
+                is_join = "加入了群聊" in content or "加入群聊" in content
+                is_qr_join = not qr_disabled and (
+                    "二维码" in content
+                    or "扫码" in content
+                    or "scan" in content.lower()
+                    or "join" in content.lower()
+                )
+                if is_join or is_qr_join:
                     self.ctype = ContextType.JOIN_GROUP
                     logger.info(f"[gewechat] identified as JOIN_GROUP: {content}")
                 elif "移出了群聊" in content:
@@ -715,10 +739,24 @@ class GeWeChatMessage(ChatMessage):
             self.ctype = None
             self.content = content
         else:
-            raise NotImplementedError(f"Unsupported message type: Type:{self.msg_data['MsgType']}")
+            # 未支持的消息类型（如 43 视频、48 位置、42 名片、50 音视频通话、10002 撤回等）。
+            # 早期版本这里直接抛出 NotImplementedError，会让回调返回 500，
+            # 进而导致 gewechat 平台反复重推同一条消息。这里统一降级为"忽略"，
+            # 保证回调始终返回 200。
+            msg_type = self.msg_data.get('MsgType')
+            logger.info(f"[gewechat] Unsupported message type: Type:{msg_type}, ignore it")
+            self.ctype = None
+            self.content = self.msg_data.get('Content', {}).get('string', '') \
+                if isinstance(self.msg_data.get('Content'), dict) else ''
+            return
 
         # 获取群聊或好友的名称
-        brief_info_response = self.client.get_brief_info(self.app_id, [self.other_user_id])
+        # get_brief_info 底层同样会抛 RuntimeError，必须捕获，否则回调 500
+        try:
+            brief_info_response = self.client.get_brief_info(self.app_id, [self.other_user_id])
+        except Exception as e:
+            logger.warning(f"[gewechat] get_brief_info failed, fallback to other_user_id: {e}")
+            brief_info_response = {}
         if brief_info_response.get('ret') == 200 and brief_info_response.get('data'):
             brief_info = brief_info_response['data'][0]
             self.other_user_nickname = brief_info.get('nickName', self.other_user_id)
@@ -728,7 +766,13 @@ class GeWeChatMessage(ChatMessage):
                 # 如果是群聊消息，获取实际发送者信息
                 self.actual_user_id = self.msg_data.get('Content', {}).get('string', '').split(':', 1)[0]
                 # 从群成员列表中获取实际发送者信息
-                chatroom_member_list_response = self.client.get_chatroom_member_list(self.app_id, self.from_user_id)
+                # 该接口在 gewechat 侧可能返回 ret=500（获取群成员列表异常），
+                # 且 http_util 会直接抛 RuntimeError，必须捕获，否则整个回调 500。
+                try:
+                    chatroom_member_list_response = self.client.get_chatroom_member_list(self.app_id, self.from_user_id)
+                except Exception as e:
+                    logger.warning(f"[gewechat] get_chatroom_member_list failed, fallback to actual_user_id: {e}")
+                    chatroom_member_list_response = {}
                 if chatroom_member_list_response.get('ret') == 200 and chatroom_member_list_response.get('data', {}).get('memberList'):
                     # 从群成员列表中匹配acual_user_id
                     for member_info in chatroom_member_list_response['data']['memberList']:
@@ -754,6 +798,25 @@ class GeWeChatMessage(ChatMessage):
 
         self.my_msg = self.msg.get('Wxid') == self.from_user_id
         logger.debug(f"[gewechat] my_msg check: Wxid={self.msg.get('Wxid')}, from_user_id={self.from_user_id}, my_msg={self.my_msg}")
+
+    def _check_at_by_msg_source(self) -> bool:
+        """通过 MsgSource 中的 atuserlist 判断群消息是否@了机器人"""
+        msg_source = self.msg_data.get('MsgSource', '')
+        if not msg_source:
+            return False
+        try:
+            root = ET.fromstring(msg_source)
+            atuserlist = root.find('.//atuserlist')
+            if atuserlist is not None and atuserlist.text:
+                bot_wxid = self.msg.get('Wxid')
+                is_at = bool(bot_wxid) and bot_wxid in atuserlist.text
+                logger.info(f"[gewechat] atuserlist check: atuserlist='{atuserlist.text}', bot_wxid='{bot_wxid}', is_at={is_at}")
+                return is_at
+        except ET.ParseError as e:
+            logger.error(f"[gewechat] Failed to parse MsgSource XML: {e}")
+        except Exception as e:
+            logger.error(f"[gewechat] Error checking @ status: {e}")
+        return False
 
     def download_voice(self):
         try:

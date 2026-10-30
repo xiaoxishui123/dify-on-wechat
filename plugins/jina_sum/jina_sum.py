@@ -7,20 +7,33 @@ from urllib.parse import urlparse
 import time
 import random
 import asyncio
-import nest_asyncio
 import requests
-from newspaper import Article
-import newspaper
-from bs4 import BeautifulSoup
 
-# 导入requests_html用于动态内容提取
-from requests_html import HTMLSession
-
-# 应用nest_asyncio以解决事件循环问题
 try:
-    nest_asyncio.apply()
-except Exception as e:
-    logger.warning(f"[JinaSum] 无法应用nest_asyncio: {str(e)}")
+    import nest_asyncio
+    try:
+        nest_asyncio.apply()
+    except Exception as e:
+        print(f"[JinaSum] 无法应用nest_asyncio: {str(e)}")
+except ImportError:
+    nest_asyncio = None
+
+try:
+    from newspaper import Article
+    import newspaper
+except ImportError:
+    Article = None
+    newspaper = None
+
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    BeautifulSoup = None
+
+try:
+    from requests_html import HTMLSession
+except ImportError:
+    HTMLSession = None
 
 import plugins
 from bridge.context import ContextType
@@ -262,7 +275,12 @@ class JinaSum(Plugin):
             logger.debug(f"[JinaSum] 使用Jina提取内容: {target_url}")
             jina_url = self._get_jina_url(target_url)
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"}
-            response = requests.get(jina_url, headers=headers, timeout=60)
+            # 禁用重试并缩短超时，避免目标不可达时（如防火墙拦截）长时间挂起
+            session = requests.Session()
+            adapter = requests.adapters.HTTPAdapter(max_retries=0)
+            session.mount("http://", adapter)
+            session.mount("https://", adapter)
+            response = session.get(jina_url, headers=headers, timeout=(8, 25))
             response.raise_for_status()
             return response.text
         except Exception as e:
@@ -361,15 +379,16 @@ class JinaSum(Plugin):
                 except Exception as e:
                     logger.error(f"[JinaSum] 直接提取微信文章失败: {str(e)}")
             
-            # 配置newspaper
-            newspaper.Config().browser_user_agent = selected_ua
-            newspaper.Config().request_timeout = 30
-            newspaper.Config().fetch_images = False
+            # 配置newspaper（必须创建同一个 Config 实例并传给 Article，否则属性不生效）
+            config = newspaper.Config()
+            config.browser_user_agent = selected_ua
+            config.request_timeout = 30
+            config.fetch_images = False
             
             # 尝试使用newspaper提取
             try:
                 # 创建Article对象
-                article = Article(url, language='zh')
+                article = Article(url, language='zh', config=config)
                 
                 # 手动下载
                 session = requests.Session()
@@ -384,7 +403,7 @@ class JinaSum(Plugin):
                 article.parse()
             except Exception as e:
                 logger.error(f"[JinaSum] 自定义下载失败，使用标准方法: {str(e)}")
-                article = Article(url, language='zh')
+                article = Article(url, language='zh', config=config)
                 article.download()
                 article.parse()
             

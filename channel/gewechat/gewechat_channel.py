@@ -11,6 +11,8 @@ from channel.gewechat.gewechat_message import GeWeChatMessage
 from common.log import logger
 from common.singleton import singleton
 from common.tmp_dir import TmpDir
+from common.markdown_image import render_markdown_image
+from common.utils import remove_markdown_symbol
 from config import conf, save_config
 from lib.gewechat import GewechatClient
 from voice.audio_convert import mp3_to_silk
@@ -104,11 +106,30 @@ class GeWeChatChannel(ChatChannel):
         app = web.application(urls, globals(), autoreload=False)
         web.httpserver.runsimple(app.wsgifunc(), ("0.0.0.0", port))
 
+    def _need_render_image(self, text: str) -> bool:
+        """判断回复是否需要在微信端渲染成图片（如行业日报）"""
+        keywords = conf().get("markdown_image_keywords", ["行业日报"]) or []
+        if not keywords or not text:
+            return False
+        return any(keyword in text for keyword in keywords)
+
     def send(self, reply: Reply, context: Context):
         receiver = context["receiver"]
         gewechat_message = context.get("msg")
+        # 用户选择改回纯文本输出，关闭 Markdown 转图片
+        # if reply.type == ReplyType.TEXT and self._need_render_image(reply.content):
+        #     image = render_markdown_image(reply.content)
+        #     if image:
+        #         if gewechat_message and gewechat_message.is_group:
+        #             # 图片消息无法携带 @，先补发一条 @ 消息
+        #             try:
+        #                 self.client.post_text(self.app_id, receiver, "", gewechat_message.actual_user_id)
+        #             except Exception as e:
+        #                 logger.error(f"[gewechat] send at before image failed: {e}")
+        #         reply = Reply(ReplyType.IMAGE, image)
         if reply.type in [ReplyType.TEXT, ReplyType.ERROR, ReplyType.INFO]:
-            reply_text = reply.content
+            # 个人微信不支持 markdown 渲染，发送前移除 markdown 符号
+            reply_text = remove_markdown_symbol(reply.content)
             ats = ""
             if gewechat_message and gewechat_message.is_group:
                 ats = gewechat_message.actual_user_id
@@ -209,11 +230,11 @@ class GeWeChatChannel(ChatChannel):
             isgroup=True, 
             msg=msg,
             # 群名
-            group_name=msg.group_name,
-            # 邀请人昵称
-            invite_nickname=msg.invite_nickname, 
+            group_name=getattr(msg, "group_name", None) or getattr(msg, "other_user_nickname", ""),
+            # 邀请人昵称（入群消息解析失败时该属性可能不存在，需兜底）
+            invite_nickname=getattr(msg, "invite_nickname", ""),
             # 被邀请人昵称
-            actual_user_nickname=msg.actual_user_nickname
+            actual_user_nickname=getattr(msg, "actual_user_nickname", "")
         )
         return context
 
@@ -251,8 +272,81 @@ class Query:
             logger.debug(f"[gewechat] 收到gewechat服务发送的回调测试消息")
             return "success"
 
-        gewechat_msg = GeWeChatMessage(data, channel.client)
-        
+        # 兼容 geweapi 新版扁平回调格式（顶层直接含 eventCode/fromUser/content，无 Data 嵌套）
+        if isinstance(data, dict) and 'Data' not in data and 'data' not in data \
+                and ('eventCode' in data or 'fromUser' in data):
+            logger.info(f"[gewechat] 检测到新版扁平回调格式，进行兼容转换: {data.get('eventCode')}")
+            _mt_map = {'TEXT': 1, 'IMAGE': 3, 'VOICE': 34, 'APP': 49, 'LINK': 49, 'VIDEO': 43, 'QUOTE': 49}
+            _mt = _mt_map.get(str(data.get('msgType', 'TEXT')).upper(), 0)
+            _ct = data.get('createTime')
+            if isinstance(_ct, int) and _ct > 10**12:  # 毫秒时间戳转秒
+                _ct = _ct // 1000
+            # 群系统消息(入群/退群/系统提示)在新版扁平格式下没有 msgType，需按内容识别
+            _content = str(data.get('content', ''))
+            if _mt in (0, 1):
+                _is_sysxml = _content.strip().startswith(('<sysmsg', '<?xml', '<appmsg'))
+                _is_join = (('加入了群聊' in _content) or ('加入群聊' in _content) or ('二维码' in _content and '加入' in _content) or ('扫码' in _content and '加入' in _content))
+                _is_exit = '移出了群聊' in _content
+                if _is_sysxml:
+                    _mt = 10002
+                elif _is_join and '想邀请' not in _content:
+                    _mt = 10000
+                elif _is_exit:
+                    _mt = 10002
+            # 群ID:新版放在 fromGroup 字段,也可能在 toUser/fromUser;
+            # 必须从 content 之外取,因为引用消息等 content 是XML,其内部含 @chatroom 会被误判成群ID
+            _room = data.get('fromGroup', '')
+            if not _room:
+                for _k in ('toUser', 'fromUser'):
+                    _v = data.get(_k, '')
+                    if isinstance(_v, str) and '@chatroom' in _v:
+                        _room = _v
+                        break
+            if not _room:
+                for _k, _v in data.items():
+                    if _k != 'content' and isinstance(_v, str) and '@chatroom' in _v:
+                        _room = _v
+                        break
+            if _room:
+                # 群消息:旧格式约定 FromUserName 为群ID, ToUserName 为机器人自身wxid
+                _f, _t = _room, data.get('wxid', '')
+                # 群聊文本/引用消息需还原旧格式的 "发送者wxid:\n内容" 前缀,
+                # 否则消息解析会把整条消息内容误当作发送者ID(导致回复时@到整句话)
+                _body = f"{data.get('fromUser', '')}:\n{data.get('content', '')}" if _mt in (1, 49) else data.get('content', '')
+            else:
+                _f, _t = data.get('fromUser', ''), data.get('toUser', '')
+                _body = data.get('content', '')
+            data = {
+                "TypeName": data.get("eventCode", "AddMsg"),
+                "Appid": data.get("appid", ""),
+                "Wxid": data.get("wxid", ""),
+                "Data": {
+                    "MsgId": data.get("msgId", 0),
+                    "NewMsgId": data.get("newMsgId", data.get("msgId", 0)),
+                    "FromUserName": {"string": _f},
+                    "ToUserName": {"string": _t},
+                    "MsgType": _mt,
+                    "Content": {"string": _body},
+                    "CreateTime": _ct or 0,
+                    "Status": 3,
+                    "MsgSource": data.get("msgSource", "") or "<msgsource></msgsource>",
+                },
+            }
+
+        # 消息解析必须整体兜底：任何未捕获异常都会让回调返回 500，
+        # 导致 gewechat 平台反复重推同一条消息（曾因 MsgType 43/48/10002 等
+        # 不支持类型触发上百次 500）。
+        try:
+            gewechat_msg = GeWeChatMessage(data, channel.client)
+        except Exception as e:
+            logger.exception(f"[gewechat] Failed to parse message, ignore it: {e}")
+            return "success"
+
+        # ctype 为 None 表示不支持/无需处理的消息类型，直接忽略
+        if getattr(gewechat_msg, "ctype", None) is None:
+            logger.debug(f"[gewechat] ignore message with None ctype from {getattr(gewechat_msg, 'from_user_id', 'unknown')}")
+            return "success"
+
         # 微信客户端的状态同步消息
         if gewechat_msg.ctype == ContextType.STATUS_SYNC:
             logger.debug(f"[gewechat] ignore status sync message: {gewechat_msg.content}")
@@ -261,7 +355,11 @@ class Query:
         # 成员入群事件
         if gewechat_msg.ctype == ContextType.JOIN_GROUP:
             # 成员入群，构造context
-            context = channel._gen_join_group_context(gewechat_msg)
+            try:
+                context = channel._gen_join_group_context(gewechat_msg)
+            except Exception as e:
+                logger.exception(f"[gewechat] Failed to generate join group context: {e}")
+                return "success"
             if context:
                 channel.produce(context)
             return "success"

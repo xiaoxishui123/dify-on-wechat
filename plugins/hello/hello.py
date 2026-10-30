@@ -99,6 +99,12 @@ class Hello(Plugin):
                 return
             
             # 没有固定欢迎语，使用AI生成
+            # 若没能解析出新成员昵称（如"已停用二维码进群"这类系统提示被误判为入群），
+            # 直接跳过，避免向群里发出"@未知用户"的错误欢迎语
+            if not nickname or nickname == "未知用户":
+                logger.warning("[Hello] JOIN_GROUP 未解析到新成员昵称，跳过AI欢迎语: %s", msg.content)
+                e_context.action = EventAction.BREAK_PASS
+                return           
             logger.info("[Hello] No fixed welcome message found, using AI generation")
             e_context["context"].type = ContextType.TEXT
             prompt = self.group_welc_prompt.format(nickname=nickname, group_name=group_name)

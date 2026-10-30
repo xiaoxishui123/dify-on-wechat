@@ -49,3 +49,15 @@ reference-context
 
 # test bot
 test_dify.py
+
+# 运行时数据与临时文件
+group_index.json
+*.bak
+*.bak.*
+nohup.out.bak
+wechat_robot.log
+*.AppImage
+
+# 插件本地配置（可能含密钥），仅提交 .template
+plugins/*/config.json
+

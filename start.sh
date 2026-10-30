@@ -13,6 +13,6 @@ ps -ef | grep app.py | grep -v grep | awk '{print $2}' | xargs kill -9 2>/dev/nu
 sleep 1
 
 # 启动新进程
-nohup python3.9 -u app.py >> wechat_robot.log 2>&1 &
+nohup /home/dify-on-wechat/venv/bin/python -u app.py >> wechat_robot.log 2>&1 &
 
 echo "应用已启动"

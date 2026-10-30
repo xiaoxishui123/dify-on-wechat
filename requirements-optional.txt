@@ -51,3 +51,14 @@ dashscope
 
 # Playwright browser automation
 playwright==1.48.0
+
+# jina_sum plugin
+# 均为可选依赖，缺失时插件会自动降级，仅依靠 jina reader 也能正常工作
+beautifulsoup4>=4.12.0 # jina_sum 通用网页解析
+lxml>=4.9.0 # beautifulsoup4 的解析器
+lxml_html_clean # lxml>=6 把 html.clean 拆成独立包，newspaper3k/requests_html 依赖它，缺失会导致导入失败
+newspaper3k==0.2.8 # jina_sum newspaper 提取方式，对高版本 Python(>=3.12) 兼容性较差，安装失败可跳过
+
+# Markdown渲染为图片（个人微信展示日报等富文本）
+markdown==3.10.3
+pymupdf>=1.24.0

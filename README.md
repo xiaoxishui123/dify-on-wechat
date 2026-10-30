@@ -90,6 +90,7 @@ dify-on-wechat、dify、gewechat服务的调用关系
 </div>
 
 ### 快速启动gewechat机器人
+启动指令：sh start.sh;tail -f wechat_robot.log
 
 #### 部署gewechat服务
 

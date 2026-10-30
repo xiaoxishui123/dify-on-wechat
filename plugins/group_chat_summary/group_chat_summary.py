@@ -87,7 +87,7 @@ class GroupChatSummary(Plugin):
             self.open_ai_api_base = self.config.get("open_ai_api_base", self.open_ai_api_base)
             self.open_ai_api_key = self.config.get("open_ai_api_key", "")
             self.open_ai_model = self.config.get("open_ai_model", self.open_ai_model)
-            self.max_record_quantity = self.config.get("max_record_quantity", 1000)
+            self.max_record_quantity = int(self.config.get("max_record_quantity", 1000))
             self.black_chat_name = self.config.get("black_chat_name")
             
             # 初始化数据库

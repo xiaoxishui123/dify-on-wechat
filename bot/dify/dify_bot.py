@@ -1,6 +1,7 @@
 # encoding:utf-8
 import io
 import os
+import re
 import mimetypes
 import threading
 import json
@@ -21,6 +22,23 @@ from common.tmp_dir import TmpDir
 from config import conf
 
 UNKNOWN_ERROR_MSG = "我暂时遇到了一些问题，请您稍后重试~"
+
+DEFAULT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Cache-Control": "max-age=0",
+}
 
 class DifyBot(Bot):
     def __init__(self):
@@ -117,7 +135,8 @@ class DifyBot(Bot):
             logger.info("- actual_user_nickname: %s", getattr(msg, 'actual_user_nickname', ''))
 
             # 检查是否需要跳过处理
-            if not context.get("from_plugin") and self._should_skip_message(raw_content):
+            skip_check_text = raw_content or query
+            if not context.get("from_plugin") and self._should_skip_message(skip_check_text):
                 logger.info("[dify] Skipping message due to special commands")
                 return Reply(ReplyType.TEXT, "")
 
@@ -135,19 +154,26 @@ class DifyBot(Bot):
                 
                 # 检查消息是否包含配置的前缀
                 has_prefix = False
+                prefix_check_text = raw_content or query
                 for prefix in group_chat_prefix:
-                    if prefix.strip() and raw_content and prefix.strip() in raw_content:
+                    if prefix.strip() and prefix_check_text and prefix.strip() in prefix_check_text:
                         has_prefix = True
                         break
                 
+                # 消息已明确@机器人（含"引用机器人消息"被判定为回复机器人的情形），视为满足触发条件
+                # chat_channel 已完成触发判定，此处不应重复拦截
+                if is_at:
+                    logger.info("[dify] Message is @ bot, skip group prefix check")
+                    has_prefix = True
+
                 # 如果是邀请消息,跳过前缀检查
-                if '被邀请加入了群聊' in raw_content:
+                if prefix_check_text and '被邀请加入了群聊' in prefix_check_text:
                     logger.info("[dify] Invite message, skip prefix check")
                     has_prefix = True
                 
                 # 如果配置了前缀，则只响应包含配置前缀的消息
-                # 但如果 is_at=True（包括引用机器人消息的情况），则跳过前缀检查
-                if group_chat_prefix and not has_prefix and not is_at and not context.get("is_plugin_welcome"):
+                # 来自插件（如定时任务）的消息跳过前缀检查
+                if group_chat_prefix and not has_prefix and not context.get("is_plugin_welcome") and not context.get("from_plugin"):
                     logger.info("[dify] Group chat requires configured prefix but message doesn't have it, skip")
                     return Reply(ReplyType.TEXT, "")
 
@@ -220,10 +246,17 @@ class DifyBot(Bot):
     # TODO: delete this function
     def _get_payload(self, query, session: DifySession, response_mode):
         # 输入的变量参考 wechat-assistant-pro：https://github.com/leochen-g/wechat-assistant-pro/issues/76
+        user_id = session.get_user_id()
+        user_name = session.get_user_name()
+        # 新人进群等场景下 actual_user_id 为空（微信系统消息不提供新成员 wxid），
+        # 传空 user_id 可能导致 Dify 返回 500，用昵称生成占位 id 避免空值
+        if not (user_id or '').strip() and (user_name or '').strip():
+            user_id = "guest_" + (user_name or "").strip()
+            logger.debug("[dify] user_id empty, using fallback: %s", user_id)
         return {
             'inputs': {
-                'user_id': session.get_user_id(),
-                'user_name': session.get_user_name(),
+                'user_id': user_id or '',
+                'user_name': user_name or '',
                 'room_id': session.get_room_id(),
                 'room_name': session.get_room_name()
             },
@@ -324,7 +357,8 @@ class DifyBot(Bot):
         logger.debug("[DIFY] usage {}".format(rsp_data.get('metadata', {}).get('usage', 0)))
 
         answer = rsp_data['answer']
-        parsed_content = parse_markdown_text(answer)
+        # 普通超链接先拍平为文本，避免被当成附件切割成多条消息
+        parsed_content = parse_markdown_text(self._flatten_text_links(answer))
 
         # {"answer": "![image](/files/tools/dbf9cd7c-2110-4383-9ba8-50d9fd1a4815.png?timestamp=1713970391&nonce=0d5badf2e39466042113a4ba9fd9bf83&sign=OVmdCxCEuEYwc9add3YNFFdUpn4VdFKgl84Cg54iLnU=)"}
         at_prefix = ""
@@ -408,13 +442,15 @@ class DifyBot(Bot):
 
     def _download_file(self, url):
         try:
-            response = requests.get(url)
+            response = requests.get(url, headers=DEFAULT_HEADERS, timeout=30)
             response.raise_for_status()
             parsed_url = urlparse(url)
             logger.debug(f"Downloading file from {url}")
             url_path = unquote(parsed_url.path)
             # 从路径中提取文件名
             file_name = url_path.split('/')[-1]
+            if not file_name:
+                file_name = "downloaded_file"
             logger.debug(f"Saving file as {file_name}")
             file_path = os.path.join(TmpDir().path(), file_name)
             with open(file_path, 'wb') as file:
@@ -426,7 +462,7 @@ class DifyBot(Bot):
 
     def _download_image(self, url):
         try:
-            pic_res = requests.get(url, stream=True)
+            pic_res = requests.get(url, headers=DEFAULT_HEADERS, stream=True, timeout=30)
             pic_res.raise_for_status()
             image_storage = io.BytesIO()
             size = 0
@@ -466,28 +502,14 @@ class DifyBot(Bot):
         # data: {"event": "agent_thought", "id": "8dcf3648-fbad-407a-85dd-73a6f43aeb9f", "task_id": "9cf1ddd7-f94b-459b-b942-b77b26c59e9b", "message_id": "1fb10045-55fd-4040-99e6-d048d07cbad3", "position": 1, "thought": "", "observation": "", "tool": "dalle3", "tool_input": "{\"dalle3\": {\"prompt\": \"cute Japanese anime girl with white hair, blue eyes, bunny girl suit\"}}", "created_at": 1705639511, "message_files": [], "conversation_id": "c216c595-2d89-438c-b33c-aae5ddddd142"}
         # data: {"event": "agent_message", "id": "1fb10045-55fd-4040-99e6-d048d07cbad3", "task_id": "9cf1ddd7-f94b-459b-b942-b77b26c59e9b", "message_id": "1fb10045-55fd-4040-99e6-d048d07cbad3", "answer": "I have created an image of a cute Japanese", "created_at": 1705639511, "conversation_id": "c216c595-2d89-438c-b33c-aae5ddddd142"}
         # data: {"event": "message_end", "task_id": "9cf1ddd7-f94b-459b-b942-b77b26c59e9b", "id": "1fb10045-55fd-4040-99e6-d048d07cbad3", "message_id": "1fb10045-55fd-4040-99e6-d048d07cbad3", "conversation_id": "c216c595-2d89-438c-b33c-aae5ddddd142", "metadata": {"usage": {"prompt_tokens": 305, "prompt_unit_price": "0.001", "prompt_price_unit": "0.001", "prompt_price": "0.0003050", "completion_tokens": 97, "completion_unit_price": "0.002", "completion_price_unit": "0.001", "completion_price": "0.0001940", "total_tokens": 184, "total_price": "0.0002290", "currency": "USD", "latency": 1.771092874929309}}}
-        msgs, conversation_id = self._handle_sse_response(response)
+        msgs, accumulated_message, conversation_id = self._handle_sse_response(response)
         channel = context.get("channel")
         # TODO: 适配除微信以外的其他channel
         is_group = context.get("isgroup", False)
         for msg in msgs[:-1]:
-            if msg['type'] == 'agent_message':
-                if is_group:
-                    # 添加空值检查，防止actual_user_nickname为None时拼接失败
-                    actual_user_nickname = getattr(context["msg"], 'actual_user_nickname', None)
-                    if actual_user_nickname:
-                        at_prefix = "@" + actual_user_nickname + "\n"
-                    else:
-                        # 如果actual_user_nickname为空，使用actual_user_id作为备选
-                        actual_user_id = getattr(context["msg"], 'actual_user_id', None)
-                        if actual_user_id:
-                            at_prefix = "@" + str(actual_user_id) + "\n"
-                        else:
-                            at_prefix = "@未知用户\n"
-                    msg['content'] = at_prefix + msg['content']
-                reply = Reply(ReplyType.TEXT, msg['content'])
-                channel.send(reply, context)
-            elif msg['type'] == 'message_file':
+            # 中间的 agent_message 文本会在下面统一合并进最终回复，避免重复推送；
+            # 仅保留图片/文件类中间结果的实时发送
+            if msg['type'] == 'message_file':
                 url = self._fill_file_base_url(msg['content']['url'])
                 reply = Reply(ReplyType.IMAGE_URL, url)
                 thread = threading.Thread(target=channel.send, args=(reply, context))
@@ -495,11 +517,28 @@ class DifyBot(Bot):
         # 检查msgs是否为空
         if not msgs:
             return None, "No messages received from agent."
+
+        # Dify Agent 流式响应中，工具调用（agent_thought）会把同一条回复拆成多个
+        # agent_message 片段；旧逻辑只取最后一片，导致回复开头被截断
+        # （例如"在的呀"变成"的呀"、"我查了下"变成"了下"）。
+        # 这里按顺序合并所有文本片段，并处理片段之间的重叠/重复。
+        merged_text = ''
+        for msg in msgs:
+            if msg['type'] == 'agent_message':
+                merged_text = self._merge_agent_text(merged_text, msg.get('content', ''))
+        # 部分 Dify 版本会额外下发包含完整答案的 message 事件，若比合并结果更完整则采用
+        if accumulated_message and (not merged_text or merged_text in accumulated_message):
+            merged_text = accumulated_message
+
         final_msg = msgs[-1]
         reply = None
         if final_msg['type'] == 'agent_message':
-            reply = Reply(ReplyType.TEXT, final_msg['content'])
+            # agent_message 中可能包含 markdown 图片/文件链接，需解析后转为对应类型的消息发送
+            reply = self._build_reply_from_markdown(merged_text or final_msg.get('content', ''), channel, context)
         elif final_msg['type'] == 'message_file':
+            # 文本与文件同时存在时，先把文本发出，避免整段内容丢失
+            if merged_text and channel:
+                channel.send(Reply(ReplyType.TEXT, merged_text), context)
             url = self._fill_file_base_url(final_msg['content']['url'])
             reply = Reply(ReplyType.IMAGE_URL, url)
         # 设置dify conversation_id, 依靠dify管理上下文
@@ -642,13 +681,21 @@ class DifyBot(Bot):
 
         merged_message = []
         accumulated_agent_message = ''
+        # 部分 Dify 版本会在 agent_message 分片之外，额外下发 message 事件（完整答案）。
+        # 单独累计后交由上层与分片合并结果对比取更完整的一份，避免直接丢弃导致回复开头缺失。
+        accumulated_message = ''
         conversation_id = None
         for event in events:
             event_name = event['event']
-            if event_name == 'agent_message' or event_name == 'message':
+            if event_name == 'agent_message':
                 accumulated_agent_message += event['answer']
                 logger.debug("[DIFY] accumulated_agent_message: {}".format(accumulated_agent_message))
                 # 保存conversation_id
+                if not conversation_id:
+                    conversation_id = event['conversation_id']
+            elif event_name == 'message':
+                accumulated_message += event['answer']
+                logger.debug("[DIFY] accumulated_message: {}".format(accumulated_message))
                 if not conversation_id:
                     conversation_id = event['conversation_id']
             elif event_name == 'agent_thought':
@@ -675,7 +722,7 @@ class DifyBot(Bot):
         if not conversation_id:
             raise Exception("conversation_id not found")
 
-        return merged_message, conversation_id
+        return merged_message, accumulated_message, conversation_id
 
     def _append_agent_message(self, accumulated_agent_message,  merged_message):
         if accumulated_agent_message:
@@ -683,6 +730,157 @@ class DifyBot(Bot):
                 'type': 'agent_message',
                 'content': accumulated_agent_message,
             })
+
+    @staticmethod
+    def _merge_agent_text(merged: str, segment: str) -> str:
+        """
+        合并 Dify Agent 流式返回的文本片段。
+        工具调用（agent_thought）会把同一条回复拆成多个片段，片段之间可能存在重叠或
+        重复（例如模型在工具调用后从头重说），拼接时需要去掉重叠部分，避免回复
+        内容被截断或重复。
+        """
+        if not segment:
+            return merged
+        if not merged:
+            return segment
+        if segment in merged:
+            return merged
+        if merged in segment:
+            return segment
+        # 取 merged 后缀与 segment 前缀的最长重叠部分，只追加新增内容
+        for size in range(min(len(merged), len(segment)), 0, -1):
+            if merged.endswith(segment[:size]):
+                return merged + segment[size:]
+        return merged + segment
+
+    @staticmethod
+    def _looks_like_media_url(url: str) -> bool:
+        """判断 markdown 链接目标是否像真正的图片/文件地址"""
+        if not url:
+            return False
+        url = url.strip()
+        return url.startswith("http://") or url.startswith("https://") or url.startswith("/")
+
+    # 带这些扩展名的链接才视为真正的附件；普通文章链接（无扩展名）不算
+    _ATTACHMENT_EXT_RE = re.compile(
+        r"\.(png|jpe?g|gif|webp|bmp|svg|pdf|docx?|xlsx?|pptx?|txt|csv|md|zip|rar|7z|"
+        r"mp3|m4a|wav|silk|mp4|mov|avi)(\?|#|$)",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def _is_attachment_url(cls, url: str) -> bool:
+        """判断链接目标是否为真正的附件（Dify 文件服务路径或带文件扩展名的地址）"""
+        if not url:
+            return False
+        target = url.strip()
+        if not target:
+            return False
+        # 相对路径本身就是 Dify 文件服务地址（下载前会被补全 base url）
+        if target.startswith(("/", "./", "../")):
+            return True
+        if target.startswith(("http://", "https://")):
+            path = urlparse(target).path
+        else:
+            path = target
+        if "files" in [seg for seg in path.split("/") if seg]:
+            return True
+        return bool(cls._ATTACHMENT_EXT_RE.search(path))
+
+    @classmethod
+    def _flatten_text_links(cls, text: str) -> str:
+        """
+        把普通超链接 [文字](url) 提前拍平成 "文字 url" 纯文本。
+
+        parse_markdown_text 会把任意 markdown 链接都当成附件切割点，
+        而行业日报这类回复正文里每条内容后面都带一个来源链接，
+        结果一条完整回复被切成十几条消息分别推送。
+        仅 `![图片](url)` 与真正的附件链接保留原样，其余链接拍平为文本，
+        这样解析结果只剩文本片段，回复便能整体作为一条消息发出。
+        """
+        if not text:
+            return text
+
+        def _replace(match):
+            label, url = match.group(1), match.group(2)
+            if cls._is_attachment_url(url):
+                return match.group(0)
+            label = re.sub(r"<[^>]+>", "", label).strip()
+            url = url.strip()
+            if not label or label == url:
+                return url
+            return f"{label} {url}"
+
+        # (?<!!) 排除图片语法 ![alt](url)，图片仍需按图片类型处理
+        return re.sub(r"(?<!!)\[([^\]]*)\]\(([^)\s]+)\)", _replace, text)
+
+    def _build_reply_from_markdown(self, text: str, channel=None, context=None):
+        """
+        解析 agent_message 文本中的 markdown 图片/文件链接：
+        - 除最后一段外的内容立即通过 channel 发送
+        - 图片/文件下载后以 IMAGE/FILE 类型回复，下载失败时降级为文本链接
+        - 最后一段作为最终 Reply 返回
+        """
+        text = self._flatten_text_links(text)
+        parsed_content = parse_markdown_text(text)
+        if not parsed_content:
+            return Reply(ReplyType.TEXT, text)
+
+        # 将链接目标不像是地址的 image/file 片段还原为普通文本，
+        # 避免 [标题](中文说明) 这类非标准写法被误判为文件而产生"文件链接：..."碎片消息
+        normalized = []
+        for item in parsed_content:
+            if item['type'] in ('image', 'file') and not self._looks_like_media_url(item.get('content')):
+                item = {'type': 'text', 'content': item.get('content', '')}
+            normalized.append(item)
+
+        # 合并相邻的文本片段，避免把一条完整回复拆成多条消息
+        merged = []
+        for item in normalized:
+            if merged and item['type'] == 'text' and merged[-1]['type'] == 'text':
+                merged[-1]['content'] += item['content']
+            else:
+                merged.append(dict(item))
+
+        # 不含真正的图片/文件时，直接返回原始文本，保持消息完整（markdown 由渠道层清理）
+        if all(item['type'] == 'text' for item in merged):
+            return Reply(ReplyType.TEXT, text)
+
+        for item in merged[:-1]:
+            reply = None
+            if item['type'] == 'text':
+                reply = Reply(ReplyType.TEXT, item['content'])
+            elif item['type'] == 'image':
+                image_url = self._fill_file_base_url(item['content'])
+                image = self._download_image(image_url)
+                if image:
+                    reply = Reply(ReplyType.IMAGE, image)
+                else:
+                    reply = Reply(ReplyType.TEXT, f"图片链接：{image_url}")
+            elif item['type'] == 'file':
+                file_url = self._fill_file_base_url(item['content'])
+                file_path = self._download_file(file_url)
+                if file_path:
+                    reply = Reply(ReplyType.FILE, file_path)
+                else:
+                    reply = Reply(ReplyType.TEXT, f"文件链接：{file_url}")
+            if reply and channel:
+                channel.send(reply, context)
+
+        final_item = merged[-1]
+        if final_item['type'] == 'image':
+            image_url = self._fill_file_base_url(final_item['content'])
+            image = self._download_image(image_url)
+            if image:
+                return Reply(ReplyType.IMAGE, image)
+            return Reply(ReplyType.TEXT, f"图片链接：{image_url}")
+        if final_item['type'] == 'file':
+            file_url = self._fill_file_base_url(final_item['content'])
+            file_path = self._download_file(file_url)
+            if file_path:
+                return Reply(ReplyType.FILE, file_path)
+            return Reply(ReplyType.TEXT, f"文件链接：{file_url}")
+        return Reply(ReplyType.TEXT, final_item['content'])
 
     def _append_message_file(self, event: dict, merged_message: list):
         if event.get('type') != 'image':
