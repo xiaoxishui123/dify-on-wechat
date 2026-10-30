@@ -70,4 +70,18 @@ plugins/difytimetask/__pycache__/
 plugins/difytimetask/taskFile/
 plugins/difytimetask/*.bak*
 
+# 纳入版本管理的第三方插件与本地测试插件
+!plugins/ChatSummary
+!plugins/ChatSummary/**/
+!plugins/NewsReport
+!plugins/NewsReport/**/
+!plugins/RaiseCard
+!plugins/RaiseCard/**/
+!plugins/test_plugin
+!plugins/test_plugin/**/
+
+# 白名单目录内仍不提交运行时文件与本地配置
+plugins/*/__pycache__/
+plugins/*/config.json
+
 
